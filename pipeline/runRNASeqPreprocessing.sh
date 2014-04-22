@@ -195,7 +195,7 @@ htseq="$outdir/htseq"
 ## I will just assume that the sortmerna data is symlinked in the repo
 [[ -z $SORTMERNADIR ]] && export SORTMERNADIR=$PIPELINE_DIR/../data/sortmerna
 if [ ! -e $SORTMERNADIR ]; then
-    echo "ERROR: could not find the sortmerna data in $SORTMERNADIR" 1&>2
+    echo "ERROR: could not find the sortmerna data in $SORTMERNADIR" 1>&2
     exit 1
 fi
 
