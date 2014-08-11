@@ -1,8 +1,4 @@
 #!/bin/bash -l
-#SBATCH -p core
-#SBATCH -n 1
-#SBATCH -t 0:30:00
-#SBATCH --mail-type=ALL
 
 ## stop on error but be verbose
 set -e

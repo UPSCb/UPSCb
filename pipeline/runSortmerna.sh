@@ -1,13 +1,4 @@
 #!/bin/bash -l
-#SBATCH -p node
-## for large files
-## we don't need the proc but the mem
-## we could give that as param
-#SBATCH -n 16
-## time too for large files
-#SBATCH -t 12:00:00
-#SBATCH --mail-type=ALL
-## mail-user and A have to be set in the submit script
 
 ## stop on error
 set -e

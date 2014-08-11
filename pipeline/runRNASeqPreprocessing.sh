@@ -10,20 +10,21 @@ bold=`tput bold`
 normal=`tput sgr0`
 
 usage() {
-    echo "usage: bash `basename $0` [OPTIONS] <proj> <mail> <fastq1> <fastq2> <outdir>
+    echo "usage: bash `basename $0` [OPTIONS] <proj> <fastq1> <fastq2> <outdir>
 
 Run the RNA-Seq preprocessing pipeline, i.e. FastQC, Trimmomatic, Sortmerna
 and STAR. You throw in a pair of fastq files and it spits out a BAM file. Sweet!
 
 ${bold}ARGUMENTS:${normal}
     proj    project that this should be run as
-    mail    e-mail address where notifications will be sent
     fastq1  forward fastq file
     fastq2  reverse fastq file
     outdir  directory to save everything in
 
 ${bold}OPTIONS:${normal}
     -h        show this help message and exit
+    -S cfg    use SLURM for job queuing with given config file
+    -T cfg    use TORQUE PBS for job queuing with given config file
     -s n      step at which to start (see ${underline}STEPS${nounderline})
     -e n      step at which to end (see ${underline}STEPS${nounderline})
     -g dir    path to STAR reference to use (required if STAR is included
@@ -58,6 +59,8 @@ if [ $# -lt 5 ]; then
     exit 1
 fi
 
+batch_system=
+cfg_file=
 pstart=1
 pend=100
 star_ref=
@@ -67,9 +70,11 @@ stranded=0
 idattr="Parent"
 # Parse the options
 OPTIND=1
-while getopts "hs:e:g:G:H:ti:" opt; do
+while getopts "hS:T:s:e:g:G:H:ti:" opt; do
     case "$opt" in
         h) usage; exit 1 ;;
+        S) cfg_file=$OPTARG; batch_system="slurm" ;;
+        T) cfg_file=$OPTARG; batch_system="torque" ;;
         s) pstart=$OPTARG ;;
         e) pend=$OPTARG ;;
         g) star_ref=$OPTARG ;;
@@ -83,6 +88,33 @@ done
 
 shift $((OPTIND - 1))
 
+# Check that valid batch system configuration was provided
+if [ -z $batch_system ]; then
+    echo "ERROR: Must select either SLURM or TORQUE PBS for job queuing, along with a configuration file" 1>&2
+    exit 1
+fi
+
+if [ ! -f $cfg_file ]; then
+    echo "ERROR: Configuration file for job queuing must exist - could not find file: '$cfg_file'" 1>&2
+    exit 1
+fi
+
+# load configuration
+source $cfg_file
+
+# verify all configuration parameters have been loaded
+cfg_params=( global_batch_args fastqc_batch_args fastqvalidator_batch_args 
+    htseq_batch_args sortmerna_batch_args star_batch_args trimmomatic_batch_args )
+    
+for cfg_param in "${cfg_params[@]}"
+do
+    if [ -z "${!cfg_param}" ]; then
+        echo "ERROR: undefined configuration parameter: '$cfg_param'" 1>&2
+        exit 1
+    fi
+done
+
+# Check the step parameters
 [[ $pstart =~ ^[0-9]+$ ]] || {
     echo "ERROR: '$pstart' is not a valid start value" 1>&2
     exit 1
@@ -132,35 +164,34 @@ PIPELINE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 set -e
 
 proj=$1
-mail=$2
+
+if [ ! -f $2 ]; then
+    echo "ERROR: fastq1 is not a file: '$2'" 1>&2
+    usage
+    exit 1
+fi
 
 if [ ! -f $3 ]; then
-    echo "ERROR: fastq1 is not a file: '$3'" 1>&2
+    echo "ERROR: fastq2 is not a file: '$3'" 1>&2
     usage
     exit 1
 fi
 
-if [ ! -f $4 ]; then
-    echo "ERROR: fastq2 is not a file: '$4'" 1>&2
-    usage
-    exit 1
-fi
-
-fastq1=$3
-fastq2=$4
+fastq1=$2
+fastq2=$3
 
 # Sample name to use for output
 s_prefix=${fastq1%_1.f*q.gz}
 sname=`basename $s_prefix`
 
-if [ ! -d `dirname $5` ]; then
+if [ ! -d `dirname $4` ]; then
     echo "ERROR: could not find parent directory for output directory" 1>&2
     usage
     exit 1
 fi
 
 ## Set up the directory structure
-outdir=$5
+outdir=$4
 [[ ! -d $outdir ]] && mkdir $outdir
 
 ## Use the directory name as a job identifier
@@ -212,13 +243,29 @@ run_sbatch_usage() {
       -d  dependency" 1>&2
 }
 
-cleanup() {
+cleanup_scancel() {
     #jobs=$@
     if [ $# -gt 0 ]; then
         echo "Canceling already started jobs: $@" 1>&2
         scancel $@
     fi
     exit 3
+}
+
+cleanup_qdel() {
+    if [ $# -gt 0 ]; then
+        echo "Canceling already started jobs: $@" 1>&2
+        qdel $@
+    fi
+    exit 3
+}
+
+cleanup() {
+    case "$batch_system" in
+        slurm) echo `cleanup_scancel $@`;;
+        torque) echo `cleanup_qdel $@`;;
+        *) echo $"ERROR: batch system value has invalid value - $batch_system"  1>&2; exit 1;;
+    esac
 }
 
 run_sbatch() {
@@ -233,13 +280,15 @@ run_sbatch() {
     log_path=""
     out_path=""
     dependency=""
+    batch_args=""
 
-    while getopts "J:e:o:d:" opt; do
+    while getopts "J:e:o:d:a:" opt; do
         case "$opt" in
             J) jobname=$OPTARG ;;
             e) log_path=$OPTARG ;;
             o) out_path=$OPTARG ;;
             d) dependency=$OPTARG ;;
+            a) batch_args="${!OPTARG}" ;;
             ?) run_sbatch_usage; exit 1 ;;
         esac
     done
@@ -271,8 +320,9 @@ run_sbatch() {
     fi
 
     sbatch_echo=`sbatch -A "$proj" \
+                "$global_batch_args" \
+                "$batch_args" \
                 -J "$jobname" \
-                --mail-user "$mail" \
                 -e "$log_path" \
                 -o "$out_path" \
                 $sbatch_options \
@@ -285,6 +335,96 @@ run_sbatch() {
 
     echo ${sbatch_echo//[^0-9]/}
 }
+
+run_qsub_usage() {
+    echo "usage: run_qsub OPTIONS <batch script> [<script param> ...]
+
+    Run a batch script and echo the job id
+
+    OPTIONS
+      -e  stderr (required)
+      -o  stdout (required)
+      -J  job name
+      -d  dependency" 1>&2
+}
+
+run_qsub() {
+    # Start a batch script and echo the job id
+    if [ $# -lt 3 ]; then
+        run_qsub_usage
+        exit 1
+    fi
+
+    OPTIND=1
+
+    log_path=""
+    out_path=""
+    dependency=""
+    batch_args=""
+
+    while getopts "J:e:o:d:a:" opt; do
+        case "$opt" in
+            J) jobname=$OPTARG ;;
+            e) log_path=$OPTARG ;;
+            o) out_path=$OPTARG ;;
+            d) dependency=$OPTARG ;;
+            a) batch_args="${!OPTARG}" ;;
+            ?) run_qsub_usage; exit 1 ;;
+        esac
+    done
+
+    shift $((OPTIND-1))
+
+    script=$1
+    shift
+
+    if [ -z $jobname ]; then
+        jobname="${sname}.RNAPreproc.${script}"
+    fi
+
+    # Check that the output file paths are given
+    if [ -z $log_path ] || [ -z $out_path ]; then
+        run_qsub_usage
+        exit 1
+    fi
+    # Check that the output file directories exist
+    if [ ! -d `dirname $log_path` ] || [ ! -d `dirname $out_path` ]; then
+        echo "ERROR: stderr and stdout paths must exist" 1>&2
+        run_qsub_usage
+        exit 1
+    fi
+
+    qsub_options=
+    if [ ! -z $dependency ]; then
+        qsub_options="-W depend=$dependency"
+    fi
+
+    params=$@
+    qsub_echo=`echo "$PIPELINE_DIR/$script $params" | \
+                qsub -A "$proj" \
+                "$global_batch_args" \
+                "$batch_args" \
+                -N "$jobname" \
+                -e "$log_path" \
+                -o "$out_path" \
+                $qsub_options \
+                $tmp_script`
+
+    if [ $? -ne 0 ]; then
+        echo "ERROR: submission failed" 1>&2
+        cleanup ${JOBIDS[*]}
+    fi
+
+    echo ${qsub_echo}
+}
+
+run_batch() {
+    case "$batch_system" in
+        slurm) echo `run_sbatch $@`;;
+        torque) echo `run_qsub $@`;;
+        *) echo $"ERROR: batch system value has invalid value - $batch_system" 1>&2; exit 1;;
+    esac
+}
 ## End functions ##
 
 ## Job ID array
@@ -292,14 +432,16 @@ JOBIDS=()
 
 ## Run fastQValidator
 if [ $pstart -le 1 ]; then
-    fastqv_id1=`run_sbatch \
+    fastqv_id1=`run_batch \
+        -a fastqvalidator_batch_args \
         -e $fastqc_raw/${sname}_1_validate.err \
         -o $fastqc_raw/${sname}_1_validate.out \
         -J ${sname}.RNAseq.FastQValidate1 \
         runFastQValidator.sh $fastq1`
     JOBIDS+=($fastqv_id1)
 
-    fastqv_id2=`run_sbatch \
+    fastqv_id2=`run_batch \
+        -a fastqvalidator_batch_args \
         -e $fastqc_raw/${sname}_2_validate.err \
         -o $fastqc_raw/${sname}_2_validate.out \
         -J ${sname}.RNAseq.FastQCValidate2 \
@@ -315,14 +457,16 @@ if [ $pstart -le 2 ] && [ $pend -ge 2 ]; then
         dep1="-d afterok:$fastqv_id1"
         dep2="-d afterok:$fastqv_id2"
     fi
-    fqc_raw_id1=`run_sbatch \
+    fqc_raw_id1=`run_batch \
+        -a fastqc_batch_args \
         -e $fastqc_raw/${sname}_1_fastqc.err \
         -o $fastqc_raw/${sname}_1_fastqc.out \
         -J ${sname}.RNAseq.FastQC.raw1 \
         $dep1 runFastQC.sh $fastq1 $fastqc_raw`
     JOBIDS+=($fqc_raw_id1)
 
-    fqc_raw_id2=`run_sbatch \
+    fqc_raw_id2=`run_batch \
+        -a fastqc_batch_args \
         -e $fastqc_raw/${sname}_2_fastqc.err \
         -o $fastqc_raw/${sname}_2_fastqc.out \
         -J ${sname}.RNAseq.FastQC.raw2 \
@@ -338,7 +482,8 @@ if [ $pstart -le 3 ] && [ $pend -ge 3 ]; then
     if [ $pstart -lt 3 ]; then
         dep="-d afterok:$fqc_raw_id1:$fqc_raw_id2"
     fi
-    sortmerna_id=`run_sbatch \
+    sortmerna_id=`run_batch \
+        -a sortmerna_batch_args \
         -e $sortmerna/${sname}_sortmerna.err \
         -o $sortmerna/${sname}_sortmerna.out \
         $dep \
@@ -359,14 +504,16 @@ if [ $pstart -le 4 ] && [ $pend -ge 4 ]; then
         echo >&2 "ERROR: rRNA-filtered FASTQ-files could not be found"
         cleanup
     fi
-    fqc_sort_id1=`run_sbatch \
+    fqc_sort_id1=`run_batch \
+        -a fastqc_batch_args \
         -e $fastqc_sortmerna/${sname}_1_fastqc.err \
         -o $fastqc_sortmerna/${sname}_1_fastqc.out \
         -J ${sname}.RNAseq.FastQC.SortMeRNA1 \
         $dep runFastQC.sh $fastq_sort_1 $fastqc_sortmerna`
     JOBIDS+=($fqc_sort_id1)
 
-    fqc_sort_id2=`run_sbatch \
+    fqc_sort_id2=`run_batch \
+        -a fastqc_batch_args \
         -e $fastqc_sortmerna/${sname}_2_fastqc.err \
         -o $fastqc_sortmerna/${sname}_2_fastqc.out \
         -J ${sname}.RNAseq.FastQC.SortMeRNA2 \
@@ -385,7 +532,8 @@ if [ $pstart -le 5 ] && [ $pend -ge 5 ]; then
         echo >&2 "ERROR: rRNA-filtered FASTQ-files could not be found"
         cleanup
     fi
-    trimmomatic_id=`run_sbatch \
+    trimmomatic_id=`run_batch \
+        -a trimmomatic_batch_args \
         -e $trimmomatic/${sname}_trimmomatic.err \
         -o $trimmomatic/${sname}_trimmomatic.log \
         -J ${sname}.RNAseq.Trimmomatic \
@@ -407,14 +555,16 @@ if [ $pstart -le 6 ] && [ $pend -ge 6 ]; then
         echo >&2 "ERROR: rRNA-filtered FASTQ-files could not be found"
         cleanup
     fi
-    fqc_trimmed_id1=`run_sbatch \
+    fqc_trimmed_id1=`run_batch \
+        -a fastqc_batch_args \
         -e $fastqc_trimmomatic/${sname}_1_fastqc.err \
         -o $fastqc_trimmomatic/${sname}_1_fastqc.out \
         -J ${sname}.RNAseq.FastQC.Trimmomatic1 \
         $dep runFastQC.sh $fastq_trimmed_1 $fastqc_trimmomatic`
     JOBIDS+=($fqc_trimmed_id1)
 
-    fqc_trimmed_id2=`run_sbatch \
+    fqc_trimmed_id2=`run_batch \
+        -a fastqc_batch_args \
         -e $fastqc_trimmomatic/${sname}_2_fastqc.err \
         -o $fastqc_trimmomatic/${sname}_2_fastqc.out \
         -J ${sname}.RNAseq.FastQC.Trimmomatic2 \
@@ -433,13 +583,15 @@ if [ $pstart -le 7 ] && [ $pend -ge 7 ]; then
     fi
 
     if [ ! -z $star_gff ]; then
-        star_id=`run_sbatch \
+        star_id=`run_batch \
+            -a star_batch_args \
             -e $star/${sname}_STAR.err \
             -o $star/${sname}_STAR.out \
             -J ${sname}.RNAseq.STAR \
             $dep runSTAR.sh -o $star $fastq_trimmed_1 $fastq_trimmed_2 $star_ref $star_gff -- --outReadsUnmapped Fastx`
     else
-        star_id=`run_sbatch \
+        star_id=`run_batch \
+            -a star_batch_args \
             -e $star/${sname}_STAR.err \
             -o $star/${sname}_STAR.out \
             -J ${sname}.RNAseq.STAR \
@@ -475,7 +627,8 @@ if [ $pstart -le 8 ] && [ $pend -ge 8 ]; then
         strand_arg="-s"
     fi
 
-    htseq_id=`run_sbatch \
+    htseq_id=`run_batch \
+        -a htseq_batch_args \
         -e $htseq/${sname}_HTSeq.err \
         -o $htseq/${sname}_HTSeq.out \
         -J ${sname}.RNAseq.HTSeq \
@@ -484,3 +637,4 @@ if [ $pstart -le 8 ] && [ $pend -ge 8 ]; then
 fi
 
 echo "Successfully submitted ${#JOBIDS[@]} jobs for ${sname}: ${JOBIDS[@]}"
+

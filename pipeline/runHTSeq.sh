@@ -1,9 +1,4 @@
 #!/bin/bash -l
-#SBATCH -p core
-#SBATCH -n 1
-#SBATCH -t 8:00:00
-#SBATCH --mail-type=ALL
-## -A and --mail-user set in the submit job
 
 ## stop on error
 set -ex

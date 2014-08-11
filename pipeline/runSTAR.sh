@@ -4,11 +4,6 @@
 ## but consider if we want that when reporting the Chimeric SAM (i.e. for merging the files, we would not want the reads to be part of the SAM...
 ## the good thing with outputting to SAM is that it can be readily piped into samtools -bs - | samtools sort - filename
 
-#SBATCH -p core
-#SBATCH -n 8
-#SBATCH -t 0-02:00:00
-#SBATCH --mail-type=ALL
-
 #################
 ## Build geneModel
 #################

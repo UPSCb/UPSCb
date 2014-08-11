@@ -1,9 +1,5 @@
 #!/bin/bash -l
 
-#SBATCH -p core -n 1
-#SBATCH -t 0-01:00:00
-#SBATCH --mail-type=ALL
-
 usage() {
     echo "usage: `basename $0` <fastq>
 
