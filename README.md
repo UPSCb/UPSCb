@@ -12,7 +12,7 @@
  \       Umeå Plant Science Center bioinformatics      \
   ------------------------------------------------------
 ```
-###This repository contains code made publicly available for:
+### This repository contains code made publicly available for:
 
 1. educational reasons
 
