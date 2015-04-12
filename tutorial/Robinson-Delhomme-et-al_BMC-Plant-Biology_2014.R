@@ -1,13 +1,17 @@
 #' ---
 #' title: "RNA-Seq tutorial"
 #' author: "Nicolas Delhomme, Bastian Schiffthaler"
-#' date: "01 October 2014"
+#' date: "`r Sys.Date()`"
 #' output:
 #'  BiocStyle::html_document:
 #'     toc: true
 #'     number_sections: true
-#' bibliography: Robinson-Delhomme-et-al_BMC-Plant-Biology_2014.bib
+#' bibliography: ~/Git/UPSCb-public/tutorial/Robinson-Delhomme-et-al_BMC-Plant-Biology_2014.bib
 #' ---
+
+#' ```{r set up, echo=FALSE}
+#' knitr::opts_knit$set(root.dir="~/Git/UPSCb-public")
+#' ```
 
 #' # Introduction
 #' This tutorial introduces and RNA-Seq differential expression analysis performed
@@ -40,25 +44,25 @@
 #' ## Setup - loading the libraries
 suppressPackageStartupMessages(library(DESeq))
 suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(easyRNASeq))
 suppressPackageStartupMessages(library(RColorBrewer))
 suppressPackageStartupMessages(library(vsn))
 suppressPackageStartupMessages(library(scatterplot3d))
-#suppressPackageStartupMessages(library(arrayQualityMetrics))
 suppressPackageStartupMessages(library(VennDiagram))
-#suppressPackageStartupMessages(library(gplots))
 suppressPackageStartupMessages(library(LSD))
-#suppressPackageStartupMessages(library(RnaSeqTutorial))
+source("src/R/plot.multidensity.R")
+source("src/R/volcanoPlot.R")
 
 #' ## Processing the data
 #' ### Reading in the data
 #' First we read the count files produced by HTSeq[@Anders:2014p6365] in a matrix.
 #' The DESeq2[@Love:2014p6358] package now actually has a function to ease that process: **DESeqDataSetFromHTSeqCount**.
 #' Here we just process the samples in parallel using mclapply instead.
-res <- mclapply(dir("data/htseq",pattern="^[2,3].*_STAR\\.txt",
+res <- mclapply(dir("data/htseq-count",pattern="^[2,3].*_STAR\\.txt",
 full.names=TRUE),function(fil){
   read.delim(fil,header=FALSE,stringsAsFactors=FALSE)
 },mc.cores=2)
-names(res) <- gsub("_.*_STAR\\.txt","",dir("HTSeq",pattern="^[2,3].*_STAR\\.txt"))
+names(res) <- gsub("_.*_STAR\\.txt","",dir("data/htseq-count",pattern="^[2,3].*_STAR\\.txt"))
 
 #' Then we extract the additional information that HTSeq writes at the end of every
 #' file detailing the number of reads that were not taken into account while
@@ -73,7 +77,7 @@ count.table <- do.call(cbind,lapply(res,"[",2))[-sel,]
 colnames(count.table) <- names(res)
 rownames(count.table) <- res[[1]][,1][-sel]
 
-#' ### the HTSeq stat lines
+#' ### The HTSeq stat lines
 #' Here we aggregate the information about how many
 #' reads aligned together with the information gathered above.
 count.stats <- do.call(cbind,lapply(res,"[",2))[sel,]
@@ -332,10 +336,8 @@ cdsFull = estimateDispersions( cdsFull )
 plotDispLSD(cdsFull)
 
 #' Next, we create both models (one considering the date only and one the date and sex combination)
-#' _Note that the pragma dev.null <- capture.output(...) below is not necessary, it
-#' is just used for pretty printing of the HMTL doc you are reading._
-dev.null <- capture.output(fit1 = suppressWarnings(fitNbinomGLMs( cdsFull, count ~ date + sex )))
-dev.null <- capture.output(fit0 = suppressWarnings(fitNbinomGLMs( cdsFull, count ~ date)))
+fit1 = suppressWarnings(fitNbinomGLMs( cdsFull, count ~ date + sex ))
+fit0 = suppressWarnings(fitNbinomGLMs( cdsFull, count ~ date))
 
 #' For the rest of the analysis, we ignore the genes that did not converge in the
 #' previous step
