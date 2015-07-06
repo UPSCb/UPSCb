@@ -116,6 +116,14 @@
 
   return(switch(output,
                 "Genome_intervals" = newgff,
-                "GRanges" = as(newgff, "GRanges"),
+                "GRanges" = {
+                  grng <- as(newgff[newgff$type == "exon"], "GRanges")
+                  elt <- elementMetadata(grng)[,colnames(elementMetadata(grng))
+                                               %in% c("ID","Parent")]
+                  colnames(elt) <- c("exon","transcript")
+                  elt$gene <- sub("\\.0","",elt$transcript)
+                  elementMetadata(grng) <- elt
+                  grng
+                },
                 stop(paste("Cannot generate output of type", output))))
 }
