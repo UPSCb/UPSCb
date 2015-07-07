@@ -10,7 +10,7 @@
 
 <meta name="author" content="Nicolas Delhomme" />
 
-<meta name="date" content="2015-07-06" />
+<meta name="date" content="2015-07-07" />
 
 <title>Synthetic transcripts generation example</title>
 
@@ -64,7 +64,7 @@ img {
 <div id="header">
 <h1 class="title">Synthetic transcripts generation example</h1>
 <h4 class="author"><em>Nicolas Delhomme</em></h4>
-<h4 class="date"><em>2015-07-06</em></h4>
+<h4 class="date"><em>2015-07-07</em></h4>
 </div>
 
 <div id="TOC">
@@ -88,9 +88,17 @@ img {
 <h1><span class="header-section-number">1</span> Setup</h1>
 <p>Load the libraries</p>
 <pre class="r"><code>library(easyRNASeq)
+suppressPackageStartupMessages(library(IRanges))
+suppressPackageStartupMessages(library(genomeIntervals))
 library(pander)</code></pre>
 <p>Source an helper file</p>
 <pre class="r"><code>source(&quot;https://microasp.upsc.se/root/upscb-public/raw/master/src/R/createSyntheticTranscripts.R&quot;)</code></pre>
+<p>Download the annotation file (gtf) from:</p>
+<p>_<a href="https://microasp.upsc.se/root/upscb-public/raw/master/tutorial/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz_" class="uri">https://microasp.upsc.se/root/upscb-public/raw/master/tutorial/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz_</a></p>
+<p>Note that the annotation file differ from that you would get from FlyBase; I have had to edit the annotation file to add chr in front of the chromosome names and to change the mitochondria name to chrM; since the data in the BAM file I used later on follow these conventions.</p>
+<pre class="r"><code>library(curl)
+curl_download(&quot;https://microasp.upsc.se/root/upscb-public/raw/master/tutorial/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz&quot;,
+              &quot;Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz&quot;)</code></pre>
 </div>
 <div id="process" class="section level1">
 <h1><span class="header-section-number">2</span> Process</h1>
@@ -101,52 +109,10 @@ library(pander)</code></pre>
 <p>The <em>feature</em> parameter defines which feature to look for in the provided file. Commonly mRNA for gff3 and transcript for gtf. It defaults to mRNA. Several parameter can ge given as argument.</p>
 <p>The <em>output</em> paramter defines the type of object that is returned. It can generate a <strong>Genome_intervals</strong> or a <strong>GRanges</strong> class of objects. The former can be saved as a gff3 using the writeGff3 function from the genomeIntervals package (loaded). The latter can be saved as an RData object and/or be used directly in the construction of an AnnotParam.</p>
 <pre class="r"><code>gAnnot &lt;- createSyntheticTranscripts(
-  filename=&quot;~/Box Sync/Projects/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz&quot;,
+  filename=&quot;Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz&quot;,
   input=&quot;gtf&quot;,
   feature=&quot;transcript&quot;,
   output=&quot;GRanges&quot;)</code></pre>
-<pre><code>## Loading required package: genomeIntervals
-## Loading required package: intervals
-## 
-## Attaching package: 'intervals'
-## 
-## The following objects are masked from 'package:easyRNASeq':
-## 
-##     reduce, type
-## 
-## Loading required package: BiocGenerics
-## Loading required package: parallel
-## 
-## Attaching package: 'BiocGenerics'
-## 
-## The following objects are masked from 'package:parallel':
-## 
-##     clusterApply, clusterApplyLB, clusterCall, clusterEvalQ,
-##     clusterExport, clusterMap, parApply, parCapply, parLapply,
-##     parLapplyLB, parRapply, parSapply, parSapplyLB
-## 
-## The following object is masked from 'package:stats':
-## 
-##     xtabs
-## 
-## The following objects are masked from 'package:base':
-## 
-##     anyDuplicated, append, as.data.frame, as.vector, cbind,
-##     colnames, do.call, duplicated, eval, evalq, Filter, Find, get,
-##     intersect, is.unsorted, lapply, Map, mapply, match, mget,
-##     order, paste, pmax, pmax.int, pmin, pmin.int, Position, rank,
-##     rbind, Reduce, rep.int, rownames, sapply, setdiff, sort,
-##     table, tapply, union, unique, unlist, unsplit
-## 
-## Loading required package: S4Vectors
-## Loading required package: stats4
-## Loading required package: IRanges
-## 
-## Attaching package: 'IRanges'
-## 
-## The following objects are masked from 'package:intervals':
-## 
-##     expand, reduce</code></pre>
 </div>
 <div id="export" class="section level2">
 <h2><span class="header-section-number">2.2</span> Export</h2>
@@ -306,9 +272,9 @@ library(pander)</code></pre>
 ## [8] methods   base     
 ## 
 ## other attached packages:
-## [1] IRanges_2.2.5          S4Vectors_0.6.1        genomeIntervals_1.24.1
-## [4] BiocGenerics_0.14.0    intervals_0.15.0       pander_0.5.2          
-## [7] easyRNASeq_2.4.5      
+## [1] curl_0.9               pander_0.5.2           genomeIntervals_1.24.1
+## [4] intervals_0.15.0       IRanges_2.2.5          S4Vectors_0.6.1       
+## [7] BiocGenerics_0.14.0    easyRNASeq_2.4.5      
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] Rcpp_0.11.6             formatR_1.2            

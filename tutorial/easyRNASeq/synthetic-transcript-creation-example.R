@@ -18,6 +18,18 @@ library(pander)
 #' Source an helper file
 source("https://microasp.upsc.se/root/upscb-public/raw/master/src/R/createSyntheticTranscripts.R")
 
+#' Download the annotation file (gtf) from:
+#'
+#' https://microasp.upsc.se/root/upscb-public/raw/master/tutorial/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz
+#'
+#' Note that the annotation file differ from that you would get from FlyBase;
+#' I have had to edit the annotation file to add chr in front of the chromosome
+#' names and to change the mitochondria name to chrM; since the data in the BAM
+#' file I used later on follow these conventions.
+library(curl)
+curl_download("https://microasp.upsc.se/root/upscb-public/raw/master/tutorial/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz",
+              "Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz")
+
 #' # Process
 #' ## Synthetic transcripts creation
 #' This function takes a gtf or gff3 _filename_ as input.
@@ -34,7 +46,7 @@ source("https://microasp.upsc.se/root/upscb-public/raw/master/src/R/createSynthe
 #' genomeIntervals package (loaded). The latter can be saved as an RData object
 #' and/or be used directly in the construction of an AnnotParam.
 gAnnot <- createSyntheticTranscripts(
-  filename="~/Box Sync/Projects/easyRNASeq/Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz",
+  filename="Drosophila_melanogaster.BDGP5.77.with-chr.gtf.gz",
   input="gtf",
   feature="transcript",
   output="GRanges")
