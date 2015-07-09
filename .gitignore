@@ -3,3 +3,7 @@
 .Rhistory
 .RData
 .DS_Store
+*.bam
+*.bam.bai
+*.rda
+*.gtf.gz
