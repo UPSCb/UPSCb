@@ -20,7 +20,9 @@ echo >&2 \
                    for the P. trichocarpa gene exon gff3 file
                 -s is the protocol stranded?
                    default to FALSE
-
+                -a are we counting antisense transcripts?
+                    default to FALSE, only active in combination with -s
+                -t Chose attribute to count in the gff3 file default is exon
         Note:
                 BAM file are expected to be sorted by position
                 Only HTSeq 0.6+ version(s) are supported
@@ -28,24 +30,11 @@ echo >&2 \
 	exit 1
 }
 
-## Are we on UPPMAX?
-if [ ! -z $SLURM_SUBMIT_DIR ]; then
-    ## laod the modules
-    echo Loading modules
-    module load python/2.7.6
-    module load bioinfo-tools
-    module load samtools/0.1.19
-else
-    htseq=`which htseq-count`
-    if [ "$?" -ne 0 ]; then
-        echo "error: you need to install htseq or add it to your path"
-        exit 1
-    fi
-fi
+echo Loading modules
+module load bioinfo-tools htseq
 
 ## check the version
-isVersion6=`htseq-count --help | grep "version 0.6" |  wc -l`
-if [ $isVersion6 != 1 ]; then
+if [ `htseq-count --help | grep -c "version 0.6"` -ne 1 ]; then
     echo Only HTSeq version 0.6+ are supported
     usage
 fi
@@ -53,13 +42,17 @@ fi
 ## options
 IDATTR="Parent"
 stranded=0
+antisense=0
+t="exon"
 
 ## get the options
-while getopts i:s option
+while getopts ai:st: option
 do
         case "$option" in
+      a) antisense=1;;
 	    i) IDATTR=$OPTARG;;
 	    s) stranded=1;;
+      t) t=$OPTARG;;
 	    \?) ## unknown flag
 		usage;;
         esac
@@ -67,12 +60,6 @@ done
 shift `expr $OPTIND - 1`
 
 ## we get two dir and two files as input
-if [ $# == 4 ]; then
-    echo "This function arguments have changed!"
-    usage
-fi
-
-
 if [ $# != 3 ]; then
     echo "This function takes one directory, one bam and one gff3 file as arguments"
     usage
@@ -84,28 +71,33 @@ if [ ! -d $1 ]; then
 fi
 
 if [ ! -f $2 ]; then
-    echo "The third argument needs to be an existing bam file"
+    echo "The second argument needs to be an existing bam file"
     usage
 fi
 nam=`basename ${2//.bam/}`
 
 if [ ! -f $3 ]; then
-    echo "The forth argument needs to be an existing gff3 file"
+    echo "The third argument needs to be an existing gff3 file"
     usage
 fi
 
-## sort by id
-## samtools sort -n $3 $2/${nam}-byname
+if [ $t == "CDS" ]; then
+  echo "Warning: the CDS option require the CDS feature to be capital in you gff3 file"
+fi
 
 ## get the count table
 if [ $stranded == 0 ]; then
+  if [ $antisense == 1 ]; then
+    echo "The antisense only works in conjunction with the -s option" >&2
+  fi
 ## since we are not using strand specific, go for the union
-    htseq-count -f bam -r pos -m union -s no -t exon -i $IDATTR $2 $3 > $1/$nam.txt
+    htseq-count -f bam -r pos -m union -s no -t $t -i $IDATTR $2 $3 > $1/$nam.txt
 else
-    htseq-count -f bam -r pos -m intersection-nonempty -s reverse -t exon -i $IDATTR $2 $3 > $1/$nam.txt
+  ## normal counting
+  if [ $antisense == 0 ]; then
+    htseq-count -f bam -r pos -m intersection-nonempty -s reverse -t $t -i $IDATTR $2 $3 > $1/$nam.txt
+  else
+    htseq-count -f bam -r pos -m intersection-nonempty -s yes -t $t -i $IDATTR $2 $3 > $1/$nam.txt
+  fi
 fi
-
-## clean
-## rm $2/${nam}-byname.bam
-
 

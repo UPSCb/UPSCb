@@ -18,7 +18,7 @@ set -x
 ## are we on UPPMAX
 if [ ! -z $SLURM_SUBMIT_DIR ]; then
 	module load bioinfo-tools
-	module load FastQC/0.10.1 
+	module load FastQC/0.11.5
 ##	echo "Running on UPPMAX"
 else
 ##	echo "Running locally"
