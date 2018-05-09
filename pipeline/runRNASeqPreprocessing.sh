@@ -5,7 +5,7 @@ set -e
 # Preprocessing script for RNA-Seq data.
 # THIS SCRIPT IS NOT TO BE RUN THROUGH SBATCH, USE BASH!
 ### ========================================================
-VERSION="0.1.6"
+VERSION="0.2.6"
 
 ### ========================================================
 ## pretty print
@@ -39,16 +39,21 @@ ${bold}OPTIONS:${normal}
     -D        Debug. On Uppmax use a devel node to try out changes during development or program updates, it's highly recommended to not run more than one step in this mode
     -s n      step at which to start (see ${underline}STEPS${nounderline})
     -e n      step at which to end (see ${underline}STEPS${nounderline})
+    -f fasta  the transcript fasta sequence file for kallisto
     -g dir    path to STAR reference to use (required if STAR is included
               in pipeline)
     -k        the STAR genome is available in shared memory (the STAR option ${underline}--genomeLoad LoadAndKeep${nounderline})
     -l        the BAM sorting memory limit for STAR in bytes (default: 10000000000)
-    -G gff    gene model GFF3 file for STAR
-    -H gff    gff3 file for ${underline}H${nounderline}TSeq, if not given, the star gff3 will be used
+    -K inx    the Kallisto index file
+    -G gtf    gene model GTF file for STAR
+    -H gff    gff3 file for ${underline}H${nounderline}TSeq
     -i        IDATTR in GFF3 file to report counts (default: 'Parent')
-    -m        the memory requirement for performing the alignment 128, 256 or 512 (128 is default, using ${bold}fat${normal} request anything larger than 128 )
+    -m        the memory requirement for performing the alignment (in GB; e.g. enter 128 for 128GB)
+    -p        fastq data is phred64 encoded
     -t        library is s${underline}t${nounderline}randed (currently only relevant for HTSeq, for the illumina protocol, second strand cDNA using dUTP)
     -a        library is s${underline}t${nounderline}randed (currently only relevant for HTSeq, for the non illumina protocol e.g. first strand cDNA using dUTP)
+    -T        trimming arguments passed to trimmomatic. Overrides defaults in runTrimmomatic.sh
+    -I        the max intron length for STAR
 
 ${bold}STEPS:${normal}
     The steps of this script are as follows:
@@ -61,6 +66,7 @@ ${bold}STEPS:${normal}
     6) FastQC
     7) STAR
     8) HTSeq-count
+    9) Kallisto
 
 ${bold}NOTES:${normal}
     * This script should not be run through sbatch, just use bash.
@@ -124,7 +130,7 @@ prepare_sbatch() {
     log_path=""
     out_path=""
     dependency=""
-	memory=""
+	  memory=""
     debug=""
 
     while getopts "J:e:o:d:Dm:" opt; do
@@ -134,7 +140,7 @@ prepare_sbatch() {
             o) out_path=$OPTARG ;;
             d) dependency=$OPTARG ;;
             D) debug="-p devel -t 1:00:00";;
-	        m) memory=$OPTARG ;;
+	    m) memory=$OPTARG ;;
             ?) run_sbatch_usage;;
         esac
     done
@@ -175,7 +181,7 @@ prepare_sbatch() {
 	"-J" $jobname "--mail-user" $mail \
 	"-e" $log_path "-o" $out_path \
     $debug \
-    ${memory:+"-C" "$memory"} \
+    ${memory:+"$memArg $memory"} \
     ${dependency:+"-d" "$dependency"} \
     $PIPELINE_DIR/$script $@
     
@@ -209,7 +215,7 @@ prepare_bash() {
     log_path=""
     out_path=""
     dependency=""
-	memory=""
+    memory=""
     debug=""
 
     while getopts "J:e:o:d:Dm:" opt; do
@@ -246,7 +252,7 @@ debug=0
 pstart=1
 pend=8
 star_ref=
-star_gff=
+star_gtf=
 star_runner_options=
 star_options=
 htseq_gff=
@@ -254,32 +260,37 @@ ilm_stranded=0
 non_ilm_stranded=0
 idattr="Parent"
 mem=
+memArg="--mem"
 bam_memory=10000000000
+phred_value=
+trimmomatic_options=
+kallisto_index=
+kallisto_fasta=
+star_intron_max=
 
 # Parse the options
 OPTIND=1
-while getopts "hdDs:e:g:G:kl:H:tai:m:" opt; do
+while getopts "hdDs:e:f:g:G:kK:l:H:tai:m:T:pI:" opt; do
     case "$opt" in
         h) usage;;
 	d) dryrun=1;;
     D) debug=1;;
         s) pstart=$OPTARG ;;
         e) pend=$OPTARG ;;
+        f) kallisto_fasta=$OPTARG ;;
         g) star_ref=$OPTARG ;;
         k) star_options="-- --genomeLoad LoadAndKeep";;
-        G) star_gff=$OPTARG ;;
+        K) kallisto_index=$OPTARG ;;
+        G) star_gtf=$OPTARG ;;
         l) bam_memory=$OPTARG ;;
         H) htseq_gff=$OPTARG ;;
         t) ilm_stranded=1 ;;
         a) non_ilm_stranded=1;;
         i) idattr=$OPTARG ;;
-	m) case "$OPTARG" in
-		128) mem=;;
-		256) mem="mem${OPTARG}GB";;
-		512) mem="mem${OPTARG}GB";;
-		fat) mem="fat";;
-		*) usage;;
-	esac ;;
+	      m) mem="${OPTARG}GB";;
+	      p) phred_value="-q";;
+		    T) trimmomatic_options=$OPTARG ;;
+		    I) star_intron_max=$OPTARG ;;
         ?) usage;;
     esac
 done
@@ -323,10 +334,11 @@ echo "### ========================================
 ## the toolList list all the necessary tools
 ## the toolArray (starting at 1) link the tool(s) to its respective step(s)
 ## starArray and htseqArray are there to simulate a nested array
-toolList=(fastQValidator fastqc sortmerna java STAR samtools python htseq-count)
+toolList=(fastQValidator fastqc sortmerna java STAR samtools python htseq-count kallisto)
 starArray=([0]=4 [1]=5)
 htseqArray=([0]=6 [1]=7)
-toolArray=([1]=0 [2]=1 [3]=2 [4]=1 [5]=3 [6]=1 [7]=${starArray[*]} [8]=${htseqArray[*]})
+kallistoArray=([0]=5 [1]=8)
+toolArray=([1]=0 [2]=1 [3]=2 [4]=1 [5]=3 [6]=1 [7]=${starArray[*]} [8]=${htseqArray[*]} [9]=${kallistoArray[*]})
 
 ## a global var to stop if we miss tools
 ## but only after having checked them all
@@ -351,8 +363,10 @@ echo "### ========================================
 # Going from step $pstart to $pend
 # Provided parameters are:
 # STAR genome: $star_ref 
-# STAR gff3: $star_gff
-# HTSeq gff3: $htseq_gff"
+# STAR gtf: $star_gtf
+# HTSeq gff3: $htseq_gff
+# Kalisto index: $kallisto_index"
+
 
 # Check if STAR is included and then if the reference is set
 if [ $pstart -le 7 ] && [ $pend -ge 7 ]; then
@@ -363,19 +377,27 @@ if [ $pstart -le 7 ] && [ $pend -ge 7 ]; then
         echo >&2 "ERROR: Could not find STAR reference"
         usage
     fi
-    if [ ! -z $star_gff ] && [ ! -f $star_gff ]; then
-        echo >&2 "ERROR: Could not find gff file: '$star_gff'"
+    if [ ! -z $star_gtf ] && [ ! -f $star_gtf ]; then
+        echo >&2 "ERROR: Could not find gtf file: '$star_gtf'"
         usage
+    fi
+    
+    # Check that STAR will get a GTF file
+    if [ ! -z $star_gtf ] && [ -f $star_gtf ]; then
+        if [ ${star_gtf##*.} != "gtf" ]; then
+          echo >&2 "ERROR: You should use a gene model GTF file for STAR"
+          usage
+        fi
     fi
 fi
 
 # Check that HTSeq will get a GFF3 file (if it's included in the pipeline)
 if [ $pstart -le 8 ] && [ $pend -ge 8 ]; then
-    if [ -z $htseq_gff ] && [ -z $star_gff ]; then
+    if [ -z $htseq_gff ] && [ -z $star_gtf ]; then
         echo >&2 "ERROR: HTSeq needs a GFF3 file"
         usage
     elif [ -z $htseq_gff ]; then
-        htseq_gff=$star_gff
+        htseq_gff=$star_gtf
     elif [ ! -z $htseq_gff ] && [ ! -f $htseq_gff ]; then
         echo >&2 "ERROR: Could not find gff file: '$htseq_gff'"
         usage
@@ -455,14 +477,20 @@ star="$outdir/star"
 htseq="$outdir/htseq"
 [[ ! -d $htseq ]] && mkdir $htseq
 
+## Kallisto
+kallisto="$outdir/kallisto"
+[[ ! -d $kallisto ]] && mkdir $kallisto
+
 ## Export some variables
 [[ -z $UPSCb ]] && export UPSCb=$PIPELINE_DIR/..
+
+## This is now part of the module
 ## I will just assume that the sortmerna data is symlinked in the repo
-[[ -z $SORTMERNADIR ]] && export SORTMERNADIR=$PIPELINE_DIR/../data/sortmerna
-if [ ! -e $SORTMERNADIR ]; then
-    echo "ERROR: could not find the sortmerna data in $SORTMERNADIR" 1>&2
-    usage
-fi
+#[[ -z $SORTMERNADIR ]] && export SORTMERNADIR=$PIPELINE_DIR/../data/sortmerna
+#if [ ! -e $SORTMERNADIR ]; then
+#    echo "ERROR: could not find the sortmerna data in $SORTMERNADIR" 1>&2
+#    usage
+#fi
 
 ## final setup
 ## check for sbatch, return 1 if no sbatch, 0 otherwise
@@ -471,8 +499,15 @@ if [ `toolCheck $CMD` -eq 1 ]; then
     CMD=bash
 fi
 
-## setup the tmp dir
-[[ -z $SNIC_TMP ]] && export SNIC_TMP=/tmp
+## setup the tmp dir - SNIC_RESOURCE is only present on uppmax
+tmp=/tmp
+if [ -z $SNIC_RESOURCE ]; then
+    tmp=/mnt/picea/tmp
+else
+    mem="mem$mem"
+    memArg="-C"
+    # we don't change tmp, it will be overloaded in the sortmerna runner
+fi
 
 echo "### ========================================"
 
@@ -540,14 +575,14 @@ if [ $pstart -le 2 ] && [ $pend -ge 2 ]; then
         -e $fastqc_raw/${sname}_1_fastqc.err \
         -o $fastqc_raw/${sname}_1_fastqc.out \
         -J ${sname}.RNAseq.FastQC.raw1 \
-        $dep1 runFastQC.sh $fastq1 $fastqc_raw`)
+        $dep1 runFastQC.sh $fastqc_raw $fastq1`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 
     JOBCMDS+=(`prepare_$CMD \
         -e $fastqc_raw/${sname}_2_fastqc.err \
         -o $fastqc_raw/${sname}_2_fastqc.out \
         -J ${sname}.RNAseq.FastQC.raw2 \
-        $dep2 runFastQC.sh $fastq2 $fastqc_raw`)
+        $dep2 runFastQC.sh $fastqc_raw $fastq2`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 fi
 
@@ -567,7 +602,7 @@ if [ $pstart -le 3 ] && [ $pend -ge 3 ]; then
         -o $sortmerna/${sname}_sortmerna.out \
         $dep \
         -J ${sname}.RNAseq.SortMeRNA \
-        runSortmerna.sh $sortmerna $SNIC_TMP $fastq1 $fastq2`)
+        runSortmerna.sh $sortmerna $tmp $fastq1 $fastq2`)
     if [ "$CMD" == "bash" ]; then
 	JOBCMDS+=("export SORTMERNADIR=$SORTMERNADIR;$sortmerna_id")
     else
@@ -595,14 +630,14 @@ if [ $pstart -le 4 ] && [ $pend -ge 4 ]; then
         -e $fastqc_sortmerna/${sname}_1_fastqc.err \
         -o $fastqc_sortmerna/${sname}_1_fastqc.out \
         -J ${sname}.RNAseq.FastQC.SortMeRNA1 \
-        $dep runFastQC.sh $fastq_sort_1 $fastqc_sortmerna`)
+        $dep runFastQC.sh $fastqc_sortmerna $fastq_sort_1`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 
     JOBCMDS+=(`prepare_$CMD \
         -e $fastqc_sortmerna/${sname}_2_fastqc.err \
         -o $fastqc_sortmerna/${sname}_2_fastqc.out \
         -J ${sname}.RNAseq.FastQC.SortMeRNA2 \
-        $dep runFastQC.sh $fastq_sort_2 $fastqc_sortmerna`)
+        $dep runFastQC.sh $fastqc_sortmerna $fastq_sort_2`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 fi
 
@@ -626,7 +661,7 @@ if [ $pstart -le 5 ] && [ $pend -ge 5 ]; then
         -o $trimmomatic/${sname}_trimmomatic.log \
         -J ${sname}.RNAseq.Trimmomatic \
         $dep \
-        runTrimmomatic.sh $fastq_sort_1 $fastq_sort_2 $trimmomatic`)
+        runTrimmomatic.sh $phred_value $fastq_sort_1 $fastq_sort_2 $trimmomatic $trimmomatic_options`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 fi
 
@@ -649,14 +684,14 @@ if [ $pstart -le 6 ] && [ $pend -ge 6 ]; then
         -e $fastqc_trimmomatic/${sname}_1_fastqc.err \
         -o $fastqc_trimmomatic/${sname}_1_fastqc.out \
         -J ${sname}.RNAseq.FastQC.Trimmomatic1 \
-        $dep runFastQC.sh $fastq_trimmed_1 $fastqc_trimmomatic`)
+        $dep runFastQC.sh $fastqc_trimmomatic $fastq_trimmed_1`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
     
     JOBCMDS+=(`prepare_$CMD \
         -e $fastqc_trimmomatic/${sname}_2_fastqc.err \
         -o $fastqc_trimmomatic/${sname}_2_fastqc.out \
         -J ${sname}.RNAseq.FastQC.Trimmomatic2 \
-        $dep runFastQC.sh $fastq_trimmed_2 $fastqc_trimmomatic`)
+        $dep runFastQC.sh $fastqc_trimmomatic $fastq_trimmed_2`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 fi
 
@@ -674,8 +709,12 @@ if [ $pstart -le 7 ] && [ $pend -ge 7 ]; then
         cleanup
     fi
 
-    if [ ! -z $star_gff ]; then
-	    star_runner_options="-g $star_gff"
+    if [ ! -z $star_gtf ]; then
+	    star_runner_options="-g $star_gtf"
+    fi
+    
+    if [ ! -z $star_intron_max ]; then
+      star_runner_options="$star_runner_options -m $star_intron_max"
     fi
 
     JOBCMDS+=(`prepare_$CMD \
@@ -699,10 +738,11 @@ if [ $pstart -le 8 ] && [ $pend -ge 8 ]; then
     if hash htseq-count; then
 	## this returns 0 if version 0.6 is found in the help
 	## 1 if not
-        if [ `htseq-count --help | grep -c "version 0.6"` -ne 1 ]; then
-            echo >&2 "ERROR: HTSeq v0.6 or higher is required"
-            cleanup
-        fi
+        #if [ `htseq-count --help | grep -c "version 0.6"` -ne 1 ]; then
+        #    echo >&2 "ERROR: HTSeq v0.6 or higher is required"
+        #    cleanup
+        #fi
+	echo
     else
         echo >&2 "ERROR: Could not find HTSeq in path"
         cleanup
@@ -723,6 +763,8 @@ if [ $pstart -le 8 ] && [ $pend -ge 8 ]; then
     if [ $non_ilm_stranded -eq 1 ]; then
         strand_arg="-s -a"
     fi
+    
+    # HTSeq
     JOBCMDS+=(`prepare_$CMD \
         $debug_var \
         -e $htseq/${sname}_HTSeq.err \
@@ -731,6 +773,59 @@ if [ $pstart -le 8 ] && [ $pend -ge 8 ]; then
         $dep runHTSeq.sh -i $idattr $strand_arg $htseq $star/${sname}_sortmerna_trimmomatic_STAR.bam $htseq_gff`)
     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
 fi
+
+# Run Kallisto. Depends on a successful run of trimmomatic
+if [ $pstart -le 9 ] && [ $pend -ge 9 ]; then
+    echo "# Preparing step 9"
+
+    dep=
+    if [ $pstart -le 5 ] && [ "$CMD" != "bash" ]; then
+        dep="-d afterok:${JOBIDS[${#JOBIDS[@]}-5]}"
+    elif ([ ! -f $fastq_trimmed_1 ] || [ ! -f $fastq_trimmed_2 ]) && [ "$CMD" != "bash" ]; then
+        echo >&2 "ERROR: rRNA-filtered FASTQ-files could not be found"
+        cleanup
+    fi
+    
+    kallisto_strand_option=
+    if [ $ilm_stranded -eq 0 ] && [ $non_ilm_stranded -eq 0]; then
+	    kallisto_strand_option="-u" 
+    elif [ $ilm_stranded -eq 1 ]; then
+      kallisto_strand_option="-r"   
+    elif [ $non_ilm_stranded -eq 1 ]; then
+	    kallisto_strand_option="-F"
+    fi
+  
+    JOBCMDS+=(`prepare_$CMD \
+        $debug_var \
+        -e $kallisto/${sname}_kallisto.err \
+        -o $kallisto/${sname}_kallisto.out \
+        -J ${sname}.RNAseq.kallisto \
+        $dep runKallisto.sh $kallisto_strand_option $fastq_trimmed_1 $fastq_trimmed_2 $kallisto_index $kallisto_fasta $kallisto`)
+    JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
+fi
+
+# Run MultiQC. Depends on a successful run of STAR
+# TODO this needs rethinking! Can be a pipeline step, needs to be done for all samples!
+# if [ $pstart -le 9 ] && [ $pend -ge 9 ]; then
+#     echo "# Preparing step 9"
+# 
+#     dep=
+#     if [ $pstart -lt 9 ] && [ "$CMD" != "bash" ]; then
+#         dep="-d afterok:${JOBIDS[${#JOBIDS[@]}-2]}"
+#     elif [ ! -f $star/${sname}_sortmerna_trimmomatic_STAR.bam ] && [ "$CMD" != "bash" ]; then
+#         echo >&2 "ERROR: STAR alignment BAM file could not be found"
+#         cleanup
+#     fi
+# 
+#     JOBCMDS+=(`prepare_$CMD \
+#         $debug_var \
+#         -e $multiqc/${sname}_multiqc.err \
+#         -o $multiqc/${sname}_multiqc.out \
+#         -J ${sname}.RNAseq.multiQC \
+#         $dep runMultiQC.sh $outdir $multiqc`)
+#     JOBIDS+=(`run_$CMD ${JOBCMDS[${#JOBCMDS[@]}-1]}`)
+# fi
+
 
 echo "### ========================================
 # Preparation done on `date`"
