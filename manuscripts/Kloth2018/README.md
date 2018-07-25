@@ -1,14 +1,18 @@
 # Arabidopsis requires PECTINACETYLESTERASE 9 for constitutive but not induced defenses against Myzus persicae aphids
 
 ## Authors
-**Karen J. Kloth1, Ilka N. Abreu1, Ivan Petřík2, Nicolas Delhomme3, Cloé Villard4, Cecilia Ström1, Fariba Amini5, Thomas Moritz1, Ondřej Novák2, Benedicte R. Albrectsen1**
+**Karen J. Kloth 1, Ilka N. Abreu 1, Ivan Petřík 2, Nicolas Delhomme 3, Cloé Villard 4, Cecilia Ström 1, Fariba Amini 5, Thomas Moritz 1, Ondřej Novák 2, Benedicte R. Albrectsen 1**
 
 ## Affiliations
 
 1 Department of Plant Physiology, Umeå Plant Science Centre, Umeå University, S-90187 Umea, Sweden
+
 2 Laboratory of Growth Regulators, Centre of the Region Haná for Biotechnological and Agricultural Research, Institute of Experimental Botany CAS & Faculty of Science of Palacký University, Šlechtitelů 27, CZ-78371 Olomouc, Czech Republic
+
 3 Department of Forest Genetics and Physiology, Umeå Plant Science Centre, Swedish Agriculture University, S-90183 Umea, Sweden
+
 4
+
 5
 
 ## Abstract
