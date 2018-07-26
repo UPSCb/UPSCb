@@ -25,6 +25,6 @@ This repository contains the custom scripts mentioned in the manuscript, used fo
 
 ## Data
 
-The sequencing data can  be retrieved from the ENA, under the accession: XXXXXX
+The sequencing data can  be retrieved from the ENA, under the accession: PRJEB27944
 
 
