@@ -30,11 +30,13 @@ suppressPackageStartupMessages(library(LSD))
 suppressPackageStartupMessages(library(plotrix))
 suppressPackageStartupMessages(library(sciplot))
 
+
 #' Helper files
 suppressMessages(source("~/Git/UPSCb/src/R/plotMA.R"))
 suppressMessages(source("~/Git/UPSCb/src/R/volcanoPlot.R"))
 
-#' Load DESeq object
+
+#' Load saved data
 load("analysis/kallisto/DESeq-object_combtechrep_batch.rda")
 
 #' Quickly VST it
@@ -60,6 +62,7 @@ dds <- DESeq(dds)
 #' Join the two factors
 dds$Group <- factor(paste0(dds$Genotype, dds$Treatment))
 
+
 #' # CONTRAST: compare genotypes within control treatment, Col-0 c as reference 
 dds$Group <- relevel(dds$Group,"Col-0c")
 design(dds) <- ~Batch + Group
@@ -79,7 +82,7 @@ gnames <- read.csv("analysis/kallisto/DEgenes_Genoc_genenames.csv")
 colnames(gnames)
 gnames <- gnames[order(gnames$Genes), c(1,3,4)]
 
-#' Heatmap with gene clustering based on pae9-2 
+#' Heatmap with gene clustering based on pae9-2 (for the 3 clusters in timeplots)
 #' mean Z score per genotype*treatment
 colnames(vsd)
 selGenoc_colc <- vsd[selGenoc,grep("Col-0_c", colnames(vsd))]
@@ -93,11 +96,12 @@ selGenoc_mean <- cbind(apply(selGenoc_paec, 1, mean), apply(selGenoc_pae4, 1, me
 colnames(selGenoc_mean) <- c("pae9-2_c", "pae9-2_4hpi", "pae9-2_8hpi", "Col-0_c", "Col-0_4hpi", "Col-0_8hpi")
 selGenoc_meanscale <- t(scale(t(selGenoc_mean)))
 
-#' row dendrogram pertubations based on pae9-2
+#' row dendrogram Genes based on pae9-2
 clusterr     <-  hclust(pearson.dist(selGenoc_meanscale[,1:3]),method = "ward.D") # col 1:3 is pae9-2
 dendrogramr  <-  as.dendrogram(clusterr)
 
-#' Plot heatmap
+pal3 <- c("firebrick1", "dodgerblue", "chartreuse2")
+
 pdf("analysis/kallisto/Heatmap_DEG_control.pdf", width = 7, height = 8)
 par(oma = c(4, 0, 0, 8))
 heatmap.2(selGenoc_mean, 
@@ -107,24 +111,30 @@ heatmap.2(selGenoc_mean,
           labCol = colnames(selGenoc_mean),
           dendrogram = "row", Colv = FALSE, Rowv = dendrogramr,
           labRow = paste(rownames(selGenoc_mean), gnames$Nameshort),
-          rowsep=c(20, 40), sepwidth = c(0.3, 0.3))
+          rowsep=c(20, 40), sepwidth = c(0.3, 0.3)
+)
 dev.off()
 
-#' # Gene clusters and timeplots
+
+#' # Cluster analysis of genes
 #' z scale for gene counts (difference between mean expression and sample expression)
 selGenoc_meanscale <- t(scale(t(selGenoc_mean)))
 hc <- hclust(pearson.dist(selGenoc_meanscale[,1:3]),method = "ward.D")
-
 #' from dendrogram heatmap, roughly 3 groups
 tc <- cutree(hc,k=3)
 nams <- split(names(tc),tc) 
 barplot(elementNROWS(nams))
 sapply(1:length(nams),function(i){
-  clusterplot(selGenoc_meanscale[nams[[i]],4:6],
-              xlabels = colnames(selGenoc_meanscale)[4:6],
+  clusterplot(selGenoc_meanscale[nams[[i]],1:3],
+              xlabels = colnames(selGenoc_meanscale)[1:3],
               colpal = "blues",las=2)
   write(nams[[i]],file=paste0("heat-cluster",i,".txt"))
 })
+
+#' How many down DEG in Genoc in each cluster
+length(nams[[1]])
+length(nams[[2]])
+length(nams[[3]])
 
 #' Gene names
 clus <- data.frame(rbind(cbind(nams[[1]],rep("Cluster III",length(nams[[1]]))),
@@ -134,10 +144,10 @@ colnames(clus) <- c("Genes", "Cluster")
 clus <- merge(clus, gnames, by = "Genes", all = TRUE)
 write.csv(clus, "analysis/kallisto/Clusters_Genoc.csv")
 
-#' Order of columns (pae9-2 c-4-8, then col-0 c-4-8)
+#' Order of columns (pae c-4-8, then col c-4-8)
 colnames(selGenoc_meanscale)
 
-#' Prepare timeplots of some interesting genes:
+#' Prepare timeplots for some interesting genes:
 AT1G21120<- 
   data.frame(cbind(c(rep("pae9-2", 9),rep("Col-0", 9)),
                    c(rep("control",3), rep("4hpi",3), rep("8hpi",3)),
@@ -260,7 +270,7 @@ AT5G64810$Treatment <- relevel(AT5G64810$Treatment, "control")
 pdf("analysis/kallisto/Timeplots_clusters_DEG.pdf", width = 8, height = 6)
 par(mfrow=c(3,3), mar = c(3,4,2,2))
 #1
-clusterplot(selGenoc_meanscale[nams[[3]],4:6],
+clusterplot(selGenoc_meanscale[nams[[3]],1:3],
             xlabels = NA, xaxt= 'n',
             colpal = "greens",las=1,ylim=c(-1.8,1.6),
             main = "Cluster I")
@@ -282,7 +292,7 @@ lineplot.CI(AT3G48520$Treatment,legend = FALSE,x.leg = 2, y.leg = 2,
             main="CYP94B3", bty = 'n')
 
 #2
-clusterplot(selGenoc_meanscale[nams[[2]],4:6],
+clusterplot(selGenoc_meanscale[nams[[2]],1:3],
             xlabels = NA, xaxt = 'n', cex = 1.2,
             colpal = "blues",las=2,ylim=c(-1.8,1.6),
             main = "Cluster II")
@@ -304,7 +314,7 @@ lineplot.CI(AT3G26830$Treatment,legend = FALSE,
             xlab = "",col= c("gray40","dodgerblue"), pch=c(19,19),
             main="PAD3", bty = 'n') #PHYTOALEXIN DEFICIENT 3
 #3
-clusterplot(selGenoc_meanscale[nams[[1]],4:6],
+clusterplot(selGenoc_meanscale[nams[[1]],1:3],
             xlabels = c("control", "4 hpi", "8 hpi"),
             ylab = "Z score", cex.axis = 1.2, 
             colpal = "reds",las=1,ylim=c(-1.8,1.6),
@@ -327,7 +337,7 @@ lineplot.CI(AT1G75750$Treatment,legend = FALSE,x.leg = 2, y.leg = 2,
 dev.off()
 
 #---------------------------------------------------------
-# Number of DEG
+# Number DEG
 x <- read.csv("analysis/kallisto/DEgenes_allconstrast_raw.csv")
 # control
 genoc <- x[, c(2,3)]
@@ -359,6 +369,41 @@ numDE$up <- as.numeric(as.character(numDE$up))
 numDE$down <- as.numeric(as.character(numDE$down))
 numDE
 
+# Barplots numDE
+c_up <- as.numeric(as.character(numDE[1,1])) #c(22)
+c_down <- -as.numeric(as.character(numDE[1,2])) #c(-34)
+h4_up <- as.numeric(as.character(numDE[2,1])) #c(8)
+h4_down <- -as.numeric(as.character(numDE[2,2])) #c(-36)
+h8_up <- as.numeric(as.character(numDE[3,1])) #c(10)
+h8_down <- -as.numeric(as.character(numDE[3,2])) #c(-3)
+
+pdf("NumDEgenes_Geno_barplots.pdf", width = 3.5, height = 6)
+par(mfrow=c(1,3), mar = c(5,6,2,1))
+barplot(matrix(c_up), ylim = c(-40,40), axes = FALSE,
+        col = rgb(1,0,0,0.6))
+par(new = TRUE)
+barplot(matrix(c_down), ylim = c(-40,40), axes = FALSE,
+        col = rgb(0,0,1,0.6))
+axis(2, ylim=c(-40,40), at=c(-40,-20,0,20,40), labels=c(40,20,0,20,40),col="black", lwd=2, cex.axis=1.5)
+mtext(2.8,text="Number of DEG",line=2.5,font=2, cex=1.5)
+#
+barplot(matrix(h4_up), ylim = c(-40,40), axes = FALSE,
+        col = rgb(1,0,0,0.6))
+par(new = TRUE)
+barplot(matrix(h4_down), ylim = c(-40,40), axes = FALSE,
+        col = rgb(0,0,1,0.6))
+axis(2, ylim=c(-40,40), at=c(-40,-20,0,20,40), labels=c(40,20,0,20,40),col="black", lwd=2, cex.axis=1.5)
+#
+barplot(matrix(h8_up), ylim = c(-40,40), axes = FALSE,
+        col = rgb(1,0,0,0.6))
+par(new = TRUE)
+barplot(matrix(h8_down), ylim = c(-40,40), axes = FALSE,
+        col = rgb(0,0,1,0.6))
+axis(2, ylim=c(-40,40), at=c(-40,-20,0,20,40), labels=c(40,20,0,20,40),col="black", lwd=2, cex.axis=1.5)
+#legend("top", c("up", "down"), fill=c(rgb(1,0,0,0.6),rgb(0,0,1,0.6)),bty='n',cex=1.5)
+dev.off()
+
+# Polygon plot numDE
 pdf("analysis/kallisto/NumDEgenes_Geno.pdf", width=6, height=5)
 par(mfrow = c(1,1), oma=c(0,0,0,0))
 # total number of DE genes
@@ -368,8 +413,7 @@ ydown <- c(-numDE[,2], rep(0,3))
 plot   (x, yup, ylim = c(-45, 40), xlim = c(1,3.2), type = "n", axes=F, xlab="", ylab="")
 polygon(x, yup, col = rgb(1,0,0,0.6), border = "black")
 polygon(x, ydown, col = "white", border = "black")
-## Proportion of GO term based on number of significant enriched terms 
-## in downregulated DEG inferred from BinGO (Maere et al. 2005)
+## Proportion of GO term based on number of significant enriched terms
 # Up: no enriched GO terms. 
 # Down:
 # Biotic stress
@@ -390,5 +434,6 @@ abline(h=0, col="black", lwd=2)
 legend(x=2,y=40, c("response to biotic stimulus", "secondary metabolism", "other"),
        fill=c(rgb(0,0,1,0.4),rgb(0,0,1,0.6),rgb(0,0,1,0.8)),bty='n')
 dev.off()
+
 
 
