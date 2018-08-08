@@ -20,7 +20,4 @@ The analyses are to be conducted in the following way:
 
 2.4 winterGenes.html
 
-3.1. DifferentialExpression.html
-
-3.2 ExpressionAnalysis.html
-
+3. DifferentialExpressionAndExpressionPlot.html
