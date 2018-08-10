@@ -12,7 +12,43 @@ def helpMessage() {
 	
 	nextflow run pl.nf --reads "rnaseq/*_{1,2}.fq.gz" --outDir results --account "Axxxxxx"
 	
+	Arguments:
+		--reads                       Path to input data (must be surrounded with quotes)
+		--outDir                      Path to results folder
+		--account                     Account for SLURM
+		
+		
+	General options:
+		--singleEnd                   Specifies that the input is single end reads
+		
+	FastQC options:
 	
+	
+	sortmeRNA options:
+		--smeRNAfastx DEF = true
+		--smeRNApairedIn DEF = true
+		--smeRNAlog Log details DEF = true
+
+		--smeRNADB Path to databases
+	Trimmomatic options:
+	trimJar Path to trimmomatic.jar
+	trimAdapter Path to adapter file
+	trimMode PE (Pair end) or SE (Single end)
+	trimPthred  DEF 33
+	trimLog = true Record log DEF yes
+	trimSeedMismatches Maximum mismatch count DEF = 2
+	trimPalClipThreshold  Palindrome Clip Thresgold DEF = 30
+	trimSimpleClipThreshold SimpleClipThreshold DEF = 10
+	trimWindowSize Number of bases DEF= 5
+	trimRequiredQuality Average quality requiered DEF = 20
+	trimMinLen minimum length of reads to be kept. DEF = 50
+	trimCrop The number of bases to keep, from the start of the read DEF = 0
+	trimHeadCrop Number of bases to remove from the start of the read. DEF = 0
+	
+	Salmon options:
+		--salmonIndex                   Path to index
+		--salmonMode                    The library type. Default = "IU" 
+
 
 	""".stripIndent()
 }
@@ -315,7 +351,8 @@ process salmon {
 	script:	
 		prefix = read1[0].toString() - ~/(_1)?(_sortmerna)?(_trimmomatic)?(_2)?(\.fq)?(\.fastq)?(\.gz)?$/
 		"""
-		salmon quant -i ${params.salmonIndex} -l ${params.salmonMode} -1 ${read1} -2 ${read2} -p ${task.cpus} --output .
+		salmon quant -i ${params.salmonIndex} -l ${params.salmonMode} -1 ${read1} \
+		-2 ${read2} -p ${task.cpus} --gcBias --output .
 		"""
 }  
 
