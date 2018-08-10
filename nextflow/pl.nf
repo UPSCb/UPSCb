@@ -70,9 +70,11 @@ Input: Raw .fastq files
 Output: FastQC reports + multiqc reports
 */
 process fastqc {
+
 	tag "FASTQC on $pair_id"
 	publishDir "${params.outDir}/${params.step1}", mode: 'copy'
-
+	
+	//cpus {1*task.attempt}
 	input:
 		set pair_id, file(reads) from read_pairs_ch
 
@@ -85,25 +87,10 @@ process fastqc {
 		extract = ''
 		}
 		"""
-		fastqc $extract -t ${task.cpus} ${reads}
+		fastqc $extract -t ${params.cpus} ${reads}
 		"""
 }  
 
-process multiqc {
-	tag "$MultiQC for FastQC after raw data"
-	publishDir "${params.outDir}/${params.step1}/${params.multiqcSubDir}", mode: 'copy'
-
-	input:
-		file ('*') from fastqc_results.collect()
-	
-	output:
-		file "*"
-	
-	script:	
-		"""
-		multiqc .
-		"""
-}
 
 /*
 Step2 sortmeRNA 
@@ -112,6 +99,7 @@ Output: .fastq file without rRNA + FastQC reports + multiqc reports +sortmeRNA
         reports.
 */
 process merger {
+	tag "Merge on $pair_id"
 	input:
 		set pair_id, file(reads) from read_pairs2_ch
 
@@ -119,12 +107,14 @@ process merger {
 		file "${pair_id}_merged.fq" into merged_results
 		
 	script:	
+		//prefix = x.toString() - ~/(_R1)?(_trimmed)?(_merged)?(\.fq)?(\.fastq)?(\.gz)?$/
 		"""
 		fmerge ${reads} ${pair_id}_merged.fq
     """
 }
 
 process sortmerna {
+	tag "sortmeRNA on $prefix"
 	publishDir "${params.outDir}/${params.step2}", mode: 'copy'
 		
 	input:
@@ -141,35 +131,23 @@ process sortmerna {
 		def fastx='--fastx'
 		def pairedIn = '--paired_in'
 		def log = '--log'
+		def smrDB = ""
 		
 		if (!params.smeRNAfastx){		fastx = ''	}
 		if (!params.smeRNApairedIn){		pairedIn = ''	}
 		if (!params.smeRNAlog){		log = ''	}
+		if (params.smeRNADB == "") {smrDB= "\$SORTMERNA_DB"}
   
 		"""
-		sortmerna --ref ${params.smeRNADB} --reads ${x} \
+		sortmerna --ref $smrDB --reads ${x} \
 		--aligned ${prefix}_discarded --other \
-		${prefix}_sortmerna $fastx $pairedIn $log -a ${task.cpus}
+		${prefix}_sortmerna $fastx $pairedIn $log -a ${params.cpus}
 		"""
 }
 
-process multiqc_sortmerna {
-	tag "MultiQC for sortmerna logs"
-	publishDir "${params.outDir}/${params.step2}/sortmerna_MultiQC", mode: 'copy'
-
-	input:
-		file ('*') from sortmerna_logs.collect()
-	
-	output:
-		file "*"
-	
-	script:	
-		"""
-		multiqc .
-		"""
-}
 
 process unmerger {
+	tag "Unmerge on $prefix"
 	publishDir "${params.outDir}/${params.step2}", mode: 'copy'
 	
 	input:
@@ -201,25 +179,9 @@ process fastqc2 {
 			extract = ''
 		}
 		"""
-		fastqc $extract -t ${task.cpus} ${read1} ${read2}
+		fastqc $extract -t ${params.cpus} ${read1} ${read2}
 		"""
 }  
-
-process multiqc2 {
-	tag "MultiQC for sortmeRNA .fastq files"
-	publishDir "${params.outDir}/${params.step2}/${params.multiqcSubDir}", mode: 'copy'
-
-	input:
-		file ('*') from fastqc2_results.collect()
-	
-	output:
-		file "*"
-	
-	script:	
-		"""
-		multiqc .
-		"""
-}
 
 /**********************
 Step3 trimmomatic 
@@ -242,10 +204,11 @@ process trimmomatic {
 	script:	
 		def prefix = read1.toString() - ~/(_1)?(_sortmerna)?(_2)?(\.fq)?(\.fastq)?(\.gz)?$/
 		def mode = params.trimMode
-		def trimAdapter = params.trimAdapter
+		def trimJar = ""
+		def trimAdapter = ""
 		def phred = '-phred33'
 		def trimLog = "-trimlog ${prefix}_trimmomatic.log"
-		def trimJar = params.trimJar
+
 		def trimSeedMismatches = params.trimSeedMismatches
 		def trimPalClipThreshold = params.trimPalClipThreshold
 		def trimSimpleClipThreshold = params.trimSimpleClipThreshold
@@ -255,6 +218,8 @@ process trimmomatic {
 		def trimHeadCrop = ''
 		def trimCrop = ''
 		
+		if (params.trimJar == "") {trimJar= "\$TRIMMOMATIC_HOME/trimmomatic.jar"}
+		if (params.trimAdapter == "") {trimAdapter= "/build/Trimmomatic-0.38/adapters/TruSeq3-PE-2.fa"}
 		if (!params.trimLog)
 			trimLog=''
 		if (params.trimHeadCrop > 0)
@@ -263,7 +228,8 @@ process trimmomatic {
 			trimCrop= "CROP:${params.trimCrop}"
 
 		"""
-		java -jar $trimJar $mode -threads ${task.cpus} $phred $trimLog \
+		//java -jar
+		trimmomatic $mode -threads ${params.cpus} $phred $trimLog \
 		${read1} ${read2} \
 		${prefix}_trimmomatic_1.fq.gz ${prefix}_unpaired_1.fq.gz \
 		${prefix}_trimmomatic_2.fq.gz ${prefix}_unpaired_2.fq.gz \
@@ -274,6 +240,52 @@ process trimmomatic {
 		MINLEN:${trimMinLen}
 		"""
 }
+
+process fastqc3 {
+	tag "FASTQC after trimmomatic"
+	publishDir "${params.outDir}/${params.step3}/${params.fastqcSubDir}", mode: 'copy'
+	
+	input:
+		set file(read1), file(read2) from trimmomatic_results
+
+	output:
+		file "*_fastqc.{zip,html}" into fastqc3_results
+
+	script:	
+		def extract='--noextract'
+		if (!params.fastqcNoExtract){
+			extract = ''
+		}
+		"""
+		fastqc $extract -t ${params.cpus} ${read1} ${read2}
+		"""
+}  
+
+
+/*
+Step4 salmon 
+Input: sortmeRNA+trimmomatic .fastq files
+Output: count files.
+*/
+
+process salmon {
+	tag "Salmon to ${prefix}"
+	publishDir "${params.outDir}/${params.step4}/${prefix}", mode: 'copy'
+	
+	input:
+		set file(read1), file(read2) from trimmomatic_results2
+
+	output:
+		/*file "quant.sf" into salmon_results*/
+		file "*"
+
+	script:	
+		prefix = read1[0].toString() - ~/(_1)?(_sortmerna)?(_trimmomatic)?(_2)?(\.fq)?(\.fastq)?(\.gz)?$/
+		"""
+		salmon quant -i ${params.salmonIndex} -l ${params.salmonMode} -1 ${read1} \
+		-2 ${read2} -p ${params.cpus} --gcBias --output .
+		"""
+}  
 
 /*
 DISCARDED TEMPORARY
@@ -296,64 +308,5 @@ process multiqc_trimmomatic {
 		"""
 }
 */
-process fastqc3 {
-	tag "FASTQC after trimmomatic"
-	publishDir "${params.outDir}/${params.step3}/${params.fastqcSubDir}", mode: 'copy'
-	
-	input:
-		set file(read1), file(read2) from trimmomatic_results
-
-	output:
-		file "*_fastqc.{zip,html}" into fastqc3_results
-
-	script:	
-		def extract='--noextract'
-		if (!params.fastqcNoExtract){
-			extract = ''
-		}
-		"""
-		fastqc $extract -t ${task.cpus} ${read1} ${read2}
-		"""
-}  
-
-process multiqc3 {
-	tag "$MultiQC for trimmomatic"
-	publishDir "${params.outDir}/${params.step3}/${params.multiqcSubDir}", mode: 'copy'
-
-	input:
-		file ('*') from fastqc3_results.collect()
-	
-	output:
-		file "*"
-	
-	script:	
-		"""
-		multiqc .
-		"""
-}
-
-/*
-Step4 salmon 
-Input: sortmeRNA+trimmomatic .fastq files
-Output: count files.
-*/
-process salmon {
-	tag "Salmon to ${prefix}"
-	publishDir "${params.outDir}/${params.step4}/${prefix}", mode: 'copy'
-	
-	input:
-		set file(read1), file(read2) from trimmomatic_results2
-
-	output:
-		/*file "quant.sf" into salmon_results*/
-		file "*"
-
-	script:	
-		prefix = read1[0].toString() - ~/(_1)?(_sortmerna)?(_trimmomatic)?(_2)?(\.fq)?(\.fastq)?(\.gz)?$/
-		"""
-		salmon quant -i ${params.salmonIndex} -l ${params.salmonMode} -1 ${read1} \
-		-2 ${read2} -p ${task.cpus} --gcBias --output .
-		"""
-}  
 
 
