@@ -21,6 +21,7 @@ def helpMessage() {
 	General options:
 		--singleEnd                   Specifies that the input is single end reads
 		
+		
 	FastQC options:
 	
 	
@@ -59,37 +60,12 @@ if (params.help){
 	exit 0
 }
 
+
 Channel
 	.fromFilePairs( params.reads )
 	.ifEmpty { error "Cannot find any reads matching: ${params.reads}" }
 	.into { read_pairs_ch; read_pairs2_ch }
 
-/*
-Step1 FastQC 
-Input: Raw .fastq files
-Output: FastQC reports + multiqc reports
-*/
-process fastqc {
-
-	tag "FASTQC on $pair_id"
-	publishDir "${params.outDir}/${params.step1}", mode: 'copy'
-	
-	//cpus {1*task.attempt}
-	input:
-		set pair_id, file(reads) from read_pairs_ch
-
-	output:
-		file "*_fastqc.{zip,html}" into fastqc_results
-
-	script:	
-		def extract='--noextract'
-		if (!params.fastqcNoExtract){
-		extract = ''
-		}
-		"""
-		fastqc $extract -t ${params.cpus} ${reads}
-		"""
-}  
 
 
 /*
@@ -133,9 +109,9 @@ process sortmerna {
 		def log = '--log'
 		def smrDB = ""
 		
-		if (!params.smeRNAfastx){		fastx = ''	}
-		if (!params.smeRNApairedIn){		pairedIn = ''	}
-		if (!params.smeRNAlog){		log = ''	}
+		if (!params.smeRNAfastx){	fastx = ''}
+		if (!params.smeRNApairedIn){	pairedIn = ''}
+		if (!params.smeRNAlog){	log = ''}
 		if (params.smeRNADB == "") {smrDB= "\$SORTMERNA_DB"}
   
 		"""
@@ -144,7 +120,6 @@ process sortmerna {
 		${prefix}_sortmerna $fastx $pairedIn $log -a ${params.cpus}
 		"""
 }
-
 
 process unmerger {
 	tag "Unmerge on $prefix"
@@ -163,33 +138,13 @@ process unmerger {
 		"""
 }
 
-process fastqc2 {
-	tag "FASTQC after sortmerna"
-	publishDir "${params.outDir}/${params.step2}/${params.fastqcSubDir}", mode: 'copy'
-	
-	input:
-		set file(read1), file(read2) from sortmerna_unmerged2
 
-	output:
-		file "*_fastqc.{zip,html}" into fastqc2_results
-
-	script:	
-		def extract='--noextract'
-		if (!params.fastqcNoExtract){
-			extract = ''
-		}
-		"""
-		fastqc $extract -t ${params.cpus} ${read1} ${read2}
-		"""
-}  
 
 /**********************
 Step3 trimmomatic 
 Input: sortmeRNA .fastq files
 Output: .fastq file without adapters + FastQC reports 
 ***********************/
-
-
 
 process trimmomatic {
 	publishDir "${params.outDir}/${params.step3}", mode: 'copy'
@@ -241,27 +196,6 @@ process trimmomatic {
 		"""
 }
 
-process fastqc3 {
-	tag "FASTQC after trimmomatic"
-	publishDir "${params.outDir}/${params.step3}/${params.fastqcSubDir}", mode: 'copy'
-	
-	input:
-		set file(read1), file(read2) from trimmomatic_results
-
-	output:
-		file "*_fastqc.{zip,html}" into fastqc3_results
-
-	script:	
-		def extract='--noextract'
-		if (!params.fastqcNoExtract){
-			extract = ''
-		}
-		"""
-		fastqc $extract -t ${params.cpus} ${read1} ${read2}
-		"""
-}  
-
-
 /*
 Step4 salmon 
 Input: sortmeRNA+trimmomatic .fastq files
@@ -287,6 +221,82 @@ process salmon {
 		"""
 }  
 
+
+/*****************************************************************************
+FASTQC section
+Note: inputs and outputs can't be declared dynamically by Nextflow
+3 process are needed for each possible FastQC output
+*****************************************************************************/
+
+/*
+Step FastQC 
+Input: Raw .fastq files
+Output: FastQC reports + multiqc reports
+*/
+if (!params.noFastQC){
+	process fastqc {
+
+		tag "FASTQC on $pair_id"
+		publishDir "${params.outDir}/${params.step1}", mode: 'copy'
+		
+		input:
+			set pair_id, file(reads) from read_pairs_ch
+
+		output:
+			file "*_fastqc.{zip,html}" into fastqc_results
+
+		script:	
+			def extract='--noextract'
+			if (!params.fastqcNoExtract){
+			extract = ''
+			}
+			"""
+			fastqc $extract -t ${params.cpus} ${reads}
+			"""
+	}  
+
+
+	process fastqc2 {
+		tag "FASTQC after sortmerna"
+		publishDir "${params.outDir}/${params.step2}/${params.fastqcSubDir}", mode: 'copy'
+		
+		input:
+			set file(read1), file(read2) from sortmerna_unmerged2
+
+		output:
+			file "*_fastqc.{zip,html}" into fastqc2_results
+
+		script:	
+			def extract='--noextract'
+			if (!params.fastqcNoExtract){
+				extract = ''
+			}
+			"""
+			fastqc $extract -t ${params.cpus} ${read1} ${read2}
+			"""
+	}  
+
+	process fastqc3 {
+		tag "FASTQC after trimmomatic"
+		publishDir "${params.outDir}/${params.step3}/${params.fastqcSubDir}", mode: 'copy'
+		
+		input:
+			set file(read1), file(read2) from trimmomatic_results
+
+		output:
+			file "*_fastqc.{zip,html}" into fastqc3_results
+
+		script:	
+			def extract='--noextract'
+			if (!params.fastqcNoExtract){
+				extract = ''
+			}
+			"""
+			fastqc $extract -t ${params.cpus} ${read1} ${read2}
+			"""
+	}  
+	
+} //end if(!params.noFastQC)
 /*
 DISCARDED TEMPORARY
 MultiQC on trimmomatic logs
