@@ -193,3 +193,7 @@ boxplot(df_log_mean_ratio_offset,
         ylab = "normalised H3K27me3 abundance",
         xlab = "time point")
 
+#' # Session Info
+#' ```{r session info, echo=FALSE}
+#' sessionInfo()
+#' ```
