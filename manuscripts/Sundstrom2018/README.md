@@ -28,7 +28,7 @@ Görel Sundström§1, Andreas N Schneider§2, Kerstin Richau2, Julia C Haas2, Ni
 
  
 
-*Keywords:* Norway spruce, Eurasian aspen, Microbiome, Phyllosphere, metatranscriptomics, RNA sequencing, amplicon sequencing, 16S rRNA gene 
+**Keywords:** Norway spruce, Eurasian aspen, Microbiome, Phyllosphere, metatranscriptomics, RNA sequencing, amplicon sequencing, 16S rRNA gene 
 
 ## Content of this repository
 
