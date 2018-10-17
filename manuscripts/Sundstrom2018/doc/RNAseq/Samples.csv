@@ -1,0 +1,49 @@
+SampleName; sample ID;Species;Location;Tissue;Sterilized;Protocol
+P1988_101;2.23.1;Spruce;Sävar;buds;No;RiboMinus
+P1988_102;2.23.2 ;Spruce;Sävar;buds;No;RiboMinus
+P1988_103;2.23.3;Spruce;Sävar;buds;No;RiboMinus
+P1988_104;2.52.1;Spruce;Sävar;buds;No;RiboMinus
+P1988_105;2.52.2;Spruce;Sävar;buds;No;RiboMinus
+P1988_106;2.52.3 ;Spruce;Sävar;buds;No;RiboMinus
+P1988_146;2.03.1;Spruce;Sävar;buds;Yes;RiboMinus
+P1988_147;2.03.2;Spruce;Sävar;buds;Yes;RiboMinus
+P1988_148;2.03.3;Spruce;Sävar;buds;Yes;RiboMinus
+P1988_107;2.05.1;Aspen;Umeå;buds;Yes;RiboMinus
+P1988_108;2.05.2;Aspen;Umeå;buds;Yes;RiboMinus
+P1988_109;2.05.3;Aspen;Umeå;buds;Yes;RiboMinus
+P1988_110;2.14.1 ;Aspen;Vindeln;suckers;No;RiboMinus
+P1988_111;2.14.2;Aspen;Vindeln;suckers;No;RiboMinus
+P1988_112;2.14.3 ;Aspen;Vindeln;suckers;No;RiboMinus
+P1988_113;2.28.1;Spruce;Hissjö;buds;No;RiboMinus
+P1988_114;2.31.1;Spruce;Hissjö;buds;No;RiboMinus
+P1988_115;2.57.1;Aspen;Umeå;buds;No;RiboMinus
+P1988_116;2.57.2;Aspen;Umeå;buds;No;RiboMinus
+P1988_117;2.57.3 ;Aspen;Umeå;buds;No;RiboMinus
+P1988_118;2.24.1;Aspen;Vindeln;mature leaves;No;RiboMinus
+P1988_119;2.24.2 ;Aspen;Vindeln;mature leaves;No;RiboMinus
+P1988_120;2.24.3;Aspen;Vindeln;mature leaves;No;RiboMinus
+P1988_121;2.47.1;Spruce;Friggesund;seedlings;Yes;RiboMinus
+P1988_122;2.47.2;Spruce;Friggesund;seedlings;Yes;RiboMinus
+P1988_123;2.47.3;Spruce;Friggesund;seedlings;Yes;RiboMinus
+P1988_124;2.30.1;Spruce;Hissjö;buds;No;RiboMinus
+P1988_125;2.32.1;Spruce;Hissjö;buds;No;RiboMinus
+P1988_126;2.29.1;Spruce;Hissjö;buds;No;RiboMinus
+P1988_127;2.33.1;Spruce;Hissjö;buds;No;RiboMinus
+P1988_128;2.45.1;Spruce;Sävar;needles2nd;No;RiboMinus
+P1988_129;2.45.2;Spruce;Sävar;needles2nd;No;RiboMinus
+P1988_130;2.45.3;Spruce;Sävar;needles2nd;No;RiboMinus
+P1988_131;2.16.1;Spruce;Sävar;needles1st;No;RiboMinus
+P1988_132;2.16.2;Spruce;Sävar;needles1st;No;RiboMinus
+P1988_133;2.16.3;Spruce;Sävar;needles1st;No;RiboMinus
+P1988_134;2.55.1;Aspen;Umeå;buds;No;RiboMinus
+P1988_135;2.55.2;Aspen;Umeå;buds;No;RiboMinus
+P1988_136;2.55.3;Aspen;Umeå;buds;No;RiboMinus
+P1988_137;2.40.1;Spruce;Friggesund;seedlings;No;RiboMinus
+P1988_138;2.40.2;Spruce;Friggesund;seedlings;No;RiboMinus
+P1988_139;2.40.3;Spruce;Friggesund;seedlings;No;RiboMinus
+P1988_140;2.46.1;Spruce;Sävar;needles3rd;No;RiboMinus
+P1988_141;2.46.2;Spruce;Sävar;needles3rd;No;RiboMinus
+P1988_142;2.46.3;Spruce;Sävar;needles3rd;No;RiboMinus
+P1988_143;2.42.1;Aspen;Umeå;bark;No;RiboMinus
+P1988_144;2.42.2;Aspen;Umeå;bark;No;RiboMinus
+P1988_145;2.42.3;Aspen;Umeå;bark;No;RiboMinus

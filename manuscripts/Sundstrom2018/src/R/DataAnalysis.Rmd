@@ -1,0 +1,728 @@
+---
+title: "Data Analysis"
+author: "Andreas Schneider"
+date: "30/08/2018"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#ITS dataset
+
+## Normalization of count matrix with metagenomeSeq
+
+The count matrix and taxonomy table (with all OTUs) are derived from the ouput of the pre-processing pipeline and the OTU clustering scripts. OTUs
+needed to have 5 reads in at least 2 biological replicates to be kept for the following analyses.
+
+```{r include = FALSE}
+library(metagenomeSeq)
+library(phyloseq)
+library(ggplot2)
+library(vegan)
+library(VennDiagram)
+```
+
+
+```{r}
+
+Seq_meta = loadPhenoData("../../doc/meta.csv", tran = TRUE)
+Seq_meta = Seq_meta[as.integer(Seq_meta$Reads_Remaining)>4000,]
+Seq_counts = loadMeta("../../doc/countmatrix.csv")
+Seq_counts$counts = Seq_counts$counts[,colnames(Seq_counts$counts) %in% rownames(Seq_meta)]
+Seq_taxa = read.delim("../../doc/tax.csv", stringsAsFactors = FALSE)
+ord = match(colnames(Seq_counts$counts), rownames(Seq_meta))
+Seq_meta = Seq_meta[ord, ]
+ann_taxa = AnnotatedDataFrame(Seq_taxa)
+ann_meta = AnnotatedDataFrame(Seq_meta)
+EXP = newMRexperiment(Seq_counts$counts, phenoData = ann_meta, featureData = ann_taxa)
+p=cumNormStat(EXP)
+css_mat = cumNormMat(EXP,p=p)
+rownames(css_mat) = Seq_taxa$SHA1
+
+##summarize to Class level
+###Exclude unknown and useless annotations
+known_class = which(fData(EXP)$Class!="unidentified"
+                    &fData(EXP)$Class!="Unknown"
+                    &fData(EXP)$Class!="Incertae sedis"
+                    &fData(EXP)$Class!="Insecta"
+                    &fData(EXP)$Class!="GS17"
+                    &fData(EXP)$Class!="GS18"
+                    &fData(EXP)$Class!="Mortierellomycotina_cls_Incertae_sedis")
+EXP_known_c = EXP[known_class,]
+EXP_class = aggTax(EXP_known_c, lvl="Class")
+p_class = cumNormStat(EXP_class)
+mat_class = aggTax(EXP_known_c,lvl="Class",norm=TRUE,out="matrix")
+
+
+#set colors that will be used throughout analysis
+cols = c("#0099ff",
+         "#c364c5",
+         "#b9a633",
+         "#4c4c4c",
+         "#1cd3a2",
+         "#fc2847",
+         "#7e904a",
+         "#5d76cb",
+         "#ff8243",
+         "#4ab0cc",
+         "#d14448",
+         "#dfe100",
+         "#bf7854")
+names(cols) = sort(unique(as.character(Seq_meta$Description_ID)))
+
+```
+
+## Data Analysis
+
+### Most abundant species in ITS dataset
+This result was used in  **Table S4**
+
+```{r}
+spru_vec = which(Seq_meta$Species=="Spruce")
+asp_vec = which(Seq_meta$Species=="Aspen")
+most_abundant_spru = data.frame(rowSums(css_mat[,spru_vec]))
+most_abundant_spru[,2] = rownames(most_abundant_spru)
+colnames(most_abundant_spru) = c("Norm_Counts_Spruce", "SHA1")
+most_abundant_spru = merge.data.frame(most_abundant_spru, Seq_taxa[,c(2:9)])
+most_abundant_spru = most_abundant_spru[order(most_abundant_spru$Norm_Counts_Spruce, decreasing = TRUE),]
+most_abundant_spru_f = most_abundant_spru[most_abundant_spru$Genus!="unidentified",]
+most_abundant_spru_f[1:25,]
+```
+
+### PCoA of Bray-Curtis dissimilarities between samples
+
+These results were used in **Fig 3** and **Fig S3**
+
+The package phyloseq is used to plot the PCoA
+
+```{r}
+taxonomy3 = Seq_taxa
+taxonomy3$OTU = as.character(taxonomy3$OTU)
+rownames(taxonomy3) = Seq_taxa$SHA1 
+taxonomy3 = as.matrix(taxonomy3)
+rownames(css_mat) = rownames(taxonomy3)
+
+
+ps = phyloseq(tax_table(taxonomy3), 
+              otu_table(css_mat,taxa_are_rows = TRUE),
+              sample_data(Seq_meta))
+
+#cleaning
+Seq_meta$tissue.type[Seq_meta$Description=="Friggesund seedlings"] = "seedlings"
+Seq_meta$tissue.type = as.factor(Seq_meta$tissue.type)
+
+#subset phyloseq object to spruce only
+ps_spru = prune_samples(Seq_meta$Species=="Spruce", ps)
+
+#ordinate
+out.bc.log_spru = ordinate(ps_spru, method = "MDS", distance = "bray")
+
+#subset to aspen
+ps_asp = prune_samples(Seq_meta$Species=="Aspen", ps)
+
+#ordinate
+out.bc.log_asp = ordinate(ps_asp, method = "MDS", distance = "bray")
+
+##define plotting function for PCoA plots
+plot_pcoa = function (ps, out, cols) {
+  cols_s = cols[sort(unique(as.character(sample_data(ps)$Description_ID)))]
+  plot_ordination(ps, out, color = "Description_ID", shape = "tissue.type")+
+    geom_point(size = 5, alpha = 0.7)+
+    labs(col = "Samples")+
+    scale_color_manual(values = cols_s)+
+    theme_classic()+
+    theme(axis.text = element_text(face = "bold", size = 15),
+        axis.line = element_line(size = 1, linetype = "solid"),
+        axis.title = element_text(size = 15, face = "bold"),
+        #axis.ticks = element_line(size = 1, linetype = "solid"),
+        legend.text = element_text(size=15, face = "bold"),
+        legend.title = element_text(size = 17, face = "bold"),
+        plot.title = element_text(size = 21, face = "bold"),
+        strip.text = element_text(size = 19, face = "bold"))#,
+        #legend.position = "none")
+}
+
+#Plot spruce samples
+plot_pcoa(ps_spru, out.bc.log_spru, cols)
+
+#Plot aspen samples
+plot_pcoa(ps_asp, out.bc.log_asp, cols)
+
+
+```
+
+Spruce ITS samples, counts aggregated by class, PcoA ordination (**Fig S4**)
+
+```{r}
+ps_c = phyloseq(otu_table(mat_class[,Seq_meta$Species=="Spruce"], taxa_are_rows = TRUE),
+                sample_data(Seq_meta[Seq_meta$Species=="Spruce",]))
+
+pcoa_c = ordinate(ps_c, method = "MDS", distance = "bray")
+
+plot_pcoa(ps_c, pcoa_c, cols)
+```
+
+# 16S dataset
+
+## Normalization of count matrix with metagenomeSeq
+
+Description: see above.
+
+```{r}
+
+Seq_16S_meta = loadPhenoData("../../doc/16Smeta.csv", tran = TRUE)
+Seq_16S_meta = Seq_16S_meta[as.integer(Seq_16S_meta$Reads_Remaining)>4000,]
+Seq_16S_counts = loadMeta("../../doc/16Scountmatrix.csv")
+Seq_16S_counts$counts = Seq_16S_counts$counts[,colnames(Seq_16S_counts$counts) %in% rownames(Seq_16S_meta)]
+Seq_16S_taxa = read.delim("../../doc/16Stax.csv", stringsAsFactors = FALSE)
+ord_16S = match(colnames(Seq_16S_counts$counts), rownames(Seq_16S_meta))
+Seq_16S_meta = Seq_16S_meta[ord_16S, ]
+ann_16S_taxa = AnnotatedDataFrame(Seq_16S_taxa)
+ann_16S_meta = AnnotatedDataFrame(Seq_16S_meta)
+EXP_16S = newMRexperiment(Seq_16S_counts$counts, phenoData = ann_16S_meta, featureData = ann_16S_taxa)
+p_16S=cumNormStat(EXP_16S)
+css_mat_16S = cumNormMat(EXP_16S,p=p_16S)
+rownames(css_mat_16S) = Seq_16S_taxa$SHA1
+
+##summarize to Class level
+###Exclude unknown and useless annotations
+known_class_16S = which(fData(EXP_16S)$Class!="uncultured bacterium"
+                    &fData(EXP_16S)$Class!="Unknown"
+                    &fData(EXP_16S)$Class!="ARKICE-90"
+                    &fData(EXP_16S)$Class!="OPB35 soil group"
+                    &fData(EXP_16S)$Class!="Ambiguous_taxa"
+                    &fData(EXP_16S)$Class!="Bacteroidetes Incertae Sedis"
+                    &fData(EXP_16S)$Class!="vadinHA49"
+                    &fData(EXP_16S)$Class!="Verrumicrobia Incertae Sedis")
+EXP_16S_known_c = EXP_16S[known_class_16S,]
+EXP_16S_class = aggTax(EXP_16S_known_c, lvl="Class")
+p_class_16S = cumNormStat(EXP_16S_class)
+mat_class_16S = aggTax(EXP_16S_known_c,lvl="Class",norm=TRUE,out="matrix")
+
+meta_col = read.csv("../../doc/meta_COL.csv")
+rownames(meta_col) = meta_col$Sample
+meta_col$Sort_ID = c("A.Bd.U2.II.N.0814.1",
+                  "A.Bd.U2.II.N.0814.2",
+                  "A.Bd.U2.II.N.0814.3",
+                  "A.Bd.U2.N.0614.1",
+                  "A.Bd.U2.N.0614.2",
+                  "A.Bd.U2.N.0614.3",
+                  "A.Bd.U2.Y.0814.1",
+                  "A.Bd.U2.Y.0814.2",
+                  "A.Bd.U2.Y.0814.3",
+                  "S.Nd.Um.FS.N.0814.1",
+                  "S.Nd.Um.FS.N.0814.2",
+                  "S.Nd.Um.FS.N.0814.3",
+                  "S.Nd.Um.FS.Y.0814.1",
+                  "S.Nd.Um.FS.Y.0814.2",
+                  "S.Nd.Um.FS.Y.0814.3",
+                  "A.Br.Vn.N.0714.1",
+                  "A.Br.Vn.N.0714.2",
+                  "A.Br.Vn.N.0714.3",
+                  "A.Lv.Vn.N.0714.1",
+                  "A.Lv.Vn.N.0714.2",
+                  "A.Lv.Vn.N.0714.3",
+                  "A.Sk.Vn.N.0714.1",
+                  "A.Sk.Vn.N.0714.2",
+                  "A.Sk.Vn.N.0714.3",
+                  "S.Bd.Hs.K.N.0614.1",
+                  "S.Bd.Hs.Z.N.0614.1",
+                  "S.Bd.Hs.Y.N.0614.1",
+                  "S.Bd.Hs.V.N.0614.1",
+                  "S.Bd.Hs.S.N.0614.1",
+                  "S.Bd.Hs.B2.N.0614.1",
+                  "S.Bd.S4.I.N.0814.1",
+                  "S.Bd.S4.I.N.0814.2",
+                  "S.Bd.S4.I.N.0814.3",
+                  "S.Bd.S4.I.Y.0814.1",
+                  "S.Bd.S4.I.Y.0814.2",
+                  "S.Bd.S4.I.Y.0814.3",
+                  "S.Bd.S4.I.N.0614.1",
+                  "S.Bd.S4.I.N.0614.2",
+                  "S.Bd.S4.I.N.0614.3",
+                  "S.Nd1.S4.I.N.0714.1",
+                  "S.Nd1.S4.I.N.0714.2",
+                  "S.Nd1.S4.I.N.0714.3",
+                  "S.Nd2.S4.I.N.0714.1",
+                  "S.Nd2.S4.I.N.0714.2",
+                  "S.Nd2.S4.I.N.0714.3",
+                  "S.Nd3.S4.I.N.0714.1",
+                  "S.Nd3.S4.I.N.0714.2",
+                  "S.Nd3.S4.I.N.0714.3")
+
+cols2 = as.character(meta_col$Colour)
+cols2 = unique(cols2)
+names(cols2) = as.character(unique(meta_col$Description_ID))
+
+```
+
+## Data Analysis
+
+### PCoA of Bray-Curtis dissimilarities between samples
+
+Used in **Fig 3c** and **Fig S3c**
+
+```{r}
+taxonomy4 = Seq_16S_taxa
+taxonomy4$OTU = as.character(taxonomy4$OTU)
+rownames(taxonomy4) = Seq_16S_taxa$SHA1 
+taxonomy4 = as.matrix(taxonomy4)
+rownames(css_mat_16S) = rownames(taxonomy4)
+
+ps_16S = phyloseq(tax_table(taxonomy4), 
+              otu_table(css_mat_16S,taxa_are_rows = TRUE),
+              sample_data(Seq_16S_meta))
+
+#cleaning
+Seq_16S_meta$tissue.type[Seq_16S_meta$Description=="Friggesund seedlings"] = "seedlings"
+Seq_16S_meta$tissue.type = as.factor(Seq_16S_meta$tissue.type)
+
+#subset phyloseq object to spruce only
+Seq_16S_meta$Species = ifelse(grepl("^A", Seq_16S_meta$Sort_ID), "Aspen", "Spruce")
+ps_16S_spru = prune_samples(Seq_16S_meta$Species=="Spruce", ps_16S)
+
+#ordinate
+out.bc.log_16S_spru = ordinate(ps_16S_spru, method = "MDS", distance = "bray")
+
+#subset to aspen
+ps_16S_asp = prune_samples(Seq_16S_meta$Species=="Aspen", ps_16S)
+
+#ordinate
+out.bc.log_16S_asp = ordinate(ps_16S_asp, method = "MDS", distance = "bray")
+
+
+#Plot spruce samples
+plot_pcoa(ps_16S_spru, out.bc.log_16S_spru, cols2)
+
+#Plot aspen samples
+plot_pcoa(ps_16S_asp, out.bc.log_16S_asp, cols2)
+
+```
+
+# RNA-seq data
+
+## Fungal contigs
+
+### Import of matrices
+
+```{r}
+#spruce
+gene_mat = read.delim("../../doc/RNAseq/SpruceFungiGeneMatrixNormalized.txt", stringsAsFactors = FALSE)
+spruce_mat = gene_mat
+rownames(spruce_mat) = spruce_mat[,1]
+spruce_mat = spruce_mat[,-c(1,32)]
+spruce_mat = spruce_mat[rowSums(spruce_mat>=5)>=2,]
+
+#aspen
+gene_mat_s = read.delim("../../doc/RNAseq/AspenFungiGeneReadsMatrixNormalized", stringsAsFactors = FALSE)[,-20]
+asp_mat = gene_mat_s
+rownames(asp_mat) = asp_mat[,1]
+asp_mat = asp_mat[,-1]
+asp_mat = asp_mat[rowSums(asp_mat>=5)>=2,]
+
+#metadata
+meta = read.csv2("../../doc/RNAseq/Samples.csv")
+meta$Sample = paste0("Sample", gsub("P1988_", "", meta$SampleName))
+
+meta2 = meta[meta$Sample %in% c(colnames(spruce_mat), colnames(asp_mat)),]
+
+meta2$Description_ID = c("Z4006_Savar_buds_Jun",
+                      "Z4006_Savar_buds_Jun",
+                      "Z4006_Savar_buds_Jun",
+                      "Z4006_Savar_buds_Aug",
+                      "Z4006_Savar_buds_Aug",
+                      "Z4006_Savar_buds_Aug",
+                      "Z4006_Savar_buds_Aug_ster",
+                      "Z4006_Savar_buds_Aug_ster",
+                      "Z4006_Savar_buds_Aug_ster",
+                      "201_Umea_buds_Aug_ster",
+                      "201_Umea_buds_Aug_ster",
+                      "201_Umea_buds_Aug_ster",
+                      "Vindeln_suckers_Jul",
+                      "Vindeln_suckers_Jul",
+                      "Vindeln_suckers_Jul",
+                      "Z4006_Hissjo_buds_Jun",
+                      "Z4006_Hissjo_buds_Jun",
+                      "201_buds_Aug",
+                      "201_buds_Aug",
+                      "201_buds_Aug",
+                      "Vindeln_leaves_Jul",
+                      "Vindeln_leaves_Jul",
+                      "Vindeln_leaves_Jul",
+                      "Seedlings_needles_Aug_ster",
+                      "Seedlings_needles_Aug_ster",
+                      "Seedlings_needles_Aug_ster",
+                      "Z4006_Hissjo_buds_Jun",
+                      "Z4006_Hissjo_buds_Jun",
+                      "Z4006_Hissjo_buds_Jun",
+                      "Z4006_Hissjo_buds_Jun",
+                      "Z4006_Savar_needles2_Jul",
+                      "Z4006_Savar_needles2_Jul",
+                      "Z4006_Savar_needles2_Jul",
+                      "Z4006_Savar_needles1_Jul",
+                      "Z4006_Savar_needles1_Jul",
+                      "Z4006_Savar_needles1_Jul",
+                      "201_buds_Jun",
+                      "201_buds_Jun",
+                      "201_buds_Jun",
+                      "Seedlings_needles_Aug",
+                      "Seedlings_needles_Aug",
+                      "Seedlings_needles_Aug",
+                      "Z4006_Savar_needles3_Jul",
+                      "Z4006_Savar_needles3_Jul",
+                      "Z4006_Savar_needles3_Jul",
+                      "Vindeln_bark_Jul",
+                      "Vindeln_bark_Jul",
+                      "Vindeln_bark_Jul")
+rownames(meta2) = gsub("P1988_", "", meta2$SampleName)
+Pool_Names = data.frame(rownames(meta2), meta2$sample.ID, meta2$Description_ID)
+Pool_Names = Pool_Names[order(Pool_Names$rownames.meta2.),]
+rownames(Pool_Names) = 1:nrow(Pool_Names)
+Pool_Names = cbind(ID=1:nrow(Pool_Names), Pool_Names)
+colnames(Pool_Names)[c(2,3,4)] = c("Seq_ID", "RNA-seq", "Description")
+
+meta2$Tissue = gsub("(needles).*", "\\1", meta2$Tissue)
+
+rownames(meta2) = meta2$Sample
+meta2$Description_ID = as.factor(meta2$Description_ID)
+```
+
+### PCoAs
+
+**Fig 3b; Additional file 5**
+```{r}
+##Spruce and Aspen
+colnames(meta2)[5] = "tissue.type"
+ps_spruce = phyloseq(otu_table(log10(spruce_mat+1), taxa_are_rows = TRUE),
+                     sample_data(meta2[colnames(spruce_mat),]))
+
+bc.spruce = ordinate(ps_spruce, method = "MDS", distance = "bray")
+
+ps_aspen = phyloseq(otu_table(log10(asp_mat+1), taxa_are_rows = TRUE),
+                    sample_data(meta2[colnames(asp_mat),]))
+
+bc.aspen = ordinate(ps_aspen, method = "MDS", distance = "bray")
+
+plot_pcoa(ps_spruce, bc.spruce, cols2)
+plot_pcoa(ps_aspen, bc.aspen, cols2)
+```
+
+Now the same on class level (**Additional file 6**)
+
+```{r}
+spruce_mat_class = read.delim("../../doc/RNAseq/SpruceFungiClassMatrixNormalizedCleaned.txt")
+#remove classes with ambiguous annotations
+spruce_mat_class = spruce_mat_class[-c(20,23),]
+rownames(spruce_mat_class) = spruce_mat_class$Class
+spruce_mat_class = spruce_mat_class[,-1]
+
+ps_class = phyloseq(otu_table(log10(spruce_mat_class+1), taxa_are_rows = TRUE),
+                    sample_data(meta2[colnames(spruce_mat_class),]))
+
+bc.class = ordinate(ps_class, method = "MDS", distance = "bray")
+
+plot_pcoa(ps_class, bc.class, cols2)
+```
+
+
+## Bacterial contigs
+
+### Import of matrices
+
+```{r}
+#spruce
+spruce_mat_bac = read.delim("../../doc/RNAseq/SpruceBacteriaGeneMatrixNormalized.txt")
+rownames(spruce_mat_bac) = spruce_mat_bac[,1]
+spruce_mat_bac = spruce_mat_bac[,-c(1,32)]
+spruce_mat_bac = spruce_mat_bac[rowSums(spruce_mat_bac>=5)>=2,]
+
+#aspen
+asp_mat_bac = read.delim("../../doc/RNAseq/AspenBacteriaGeneMatrixNormalized.txt", stringsAsFactors = FALSE)[,-20]
+rownames(asp_mat_bac) = asp_mat_bac[,1]
+asp_mat_bac = asp_mat_bac[,-1]
+asp_mat_bac = asp_mat_bac[rowSums(asp_mat_bac>=5)>=2,]
+
+meta_bac = meta_col
+
+```
+
+### PCoAs
+
+**Fig 3**; **Additional File 5**
+
+```{r}
+colnames(meta_bac)[6] = "tissue.type"
+ps_bac_spruce = phyloseq(otu_table(log10(spruce_mat_bac+1), taxa_are_rows = TRUE),
+                         sample_data(meta_bac[colnames(spruce_mat_bac),]))
+bc.bac_spruce = ordinate(ps_bac_spruce, method = "MDS", distance = "bray")
+
+ps_bac_aspen = phyloseq(otu_table(log10(asp_mat_bac+1), taxa_are_rows = TRUE),
+                        sample_data(meta_bac[colnames(asp_mat_bac),]))
+bc.bac_aspen = ordinate(ps_bac_aspen, method = "MDS", distance = "bray")
+
+plot_pcoa(ps_bac_spruce, bc.bac_spruce, cols2)
+plot_pcoa(ps_bac_aspen, bc.bac_aspen, cols2)
+```
+
+
+# Mantel Tests
+
+Statistical test to determine correslation between the datasets
+
+```{r}
+meta2 = merge(meta2, meta_bac[,c(2,12)])
+##between all the plots in Fig 3
+
+#define function mantel_mats(amplicon_mat, rna_mat, amplicon_meta, rna_meta, Species)
+mantel_mats = function(a, b, c, d, e) {
+  colnames(a) = c$Sort_ID
+  a = a[,c$Species==e]
+  colnames(b) = d$Sort_ID[d$Species==e]
+  b = b[,colnames(b) %in% colnames(a)]
+  b = b[,match(colnames(a), colnames(b))]
+  return(mantel(vegdist(t(a)), vegdist(t(log10(b+1)))))
+}
+#RNA-seq fungi and ITS
+#css_mat2 = css_mat
+#css_mat2 = css_mat2[,Seq_meta$Species=="Spruce"]
+#spruce_mat2 = spruce_mat
+
+#colnames(css_mat2) = Seq_meta$Sort_ID[Seq_meta$Species=="Spruce"]
+#colnames(spruce_mat2) = meta2$Sort_ID[meta2$Species=="Spruce"]
+
+#spruce_mat2 = spruce_mat2[,colnames(spruce_mat2) %in% colnames(css_mat2)]
+#spruce_mat2 = spruce_mat2[,match(colnames(css_mat2), colnames(spruce_mat2))]
+
+mantel_mats(css_mat, spruce_mat, Seq_meta, meta2, "Spruce")
+mantel_mats(css_mat, asp_mat, Seq_meta, meta2, "Aspen")
+
+##RNA-seq fungi and RNA-seq bacteria
+mantel(vegdist(t(log10(spruce_mat+1))), vegdist(t(log10(spruce_mat_bac+1))))
+mantel(vegdist(t(log10(asp_mat+1))), vegdist(t(log10(asp_mat_bac+1))))
+
+##RNA-seq bacteria and 16S
+mantel_mats(css_mat_16S, spruce_mat_bac, Seq_16S_meta, meta_bac, "Spruce")
+mantel_mats(css_mat_16S, asp_mat_bac, Seq_16S_meta, meta_bac, "Aspen")
+
+#16S and ITS
+css_mat2 = css_mat
+colnames(css_mat2) = Seq_meta$Sort_ID
+css_mat_16S2 = css_mat_16S
+colnames(css_mat_16S2) = Seq_16S_meta$Sort_ID
+is = intersect(colnames(css_mat2), colnames(css_mat_16S2))
+css_mat3 = css_mat2[,is]
+css_mat_16S3 = css_mat_16S2[,is]
+
+#spruce
+mantel(vegdist(t(css_mat3[,grepl("^S", colnames(css_mat3))])), vegdist(t(css_mat_16S3[,grepl("^S", colnames(css_mat3))])))
+#aspen
+mantel(vegdist(t(css_mat3[,grepl("^A", colnames(css_mat3))])), vegdist(t(css_mat_16S3[,grepl("^A", colnames(css_mat3))])))
+
+
+#ITS and RNA-seq fungi Class level
+
+mantel_mats(mat_class, spruce_mat_class, Seq_meta, meta2, "Spruce")
+```
+
+# Rarefaction curves
+
+**Additional file 4**
+
+##ITS
+
+```{r}
+colnames(css_mat2) = Seq_meta$Description_ID
+
+rarecurve(round(t(css_mat2[,Seq_meta$Species=="Spruce"])), col = cols[colnames(css_mat2[,Seq_meta$Species=="Spruce"])], step = 500, label = FALSE, cex = 1, lwd = 2, ylab = "OTUs", ylim = c(0,1200), xlim = c(0,60000))
+
+rarecurve(round(t(css_mat2[,Seq_meta$Species=="Aspen"])), col = cols[colnames(css_mat2[,Seq_meta$Species=="Aspen"])], step = 500, label = FALSE, cex = 1, lwd = 2, ylab = "OTUs", ylim = c(0,1200), xlim = c(0,60000))
+
+```
+
+##16S
+
+```{r}
+colnames(css_mat_16S2) = Seq_16S_meta$Description_ID
+
+rarecurve(round(t(css_mat_16S2[,Seq_16S_meta$Species=="Spruce"])), col = cols2[colnames(css_mat_16S2[,Seq_16S_meta$Species=="Spruce"])], step = 500, label = FALSE, cex = 1, lwd = 2, ylab = "OTUs", ylim = c(0,800), xlim = c(0,60000))
+
+rarecurve(round(t(css_mat_16S2[,Seq_16S_meta$Species=="Aspen"])), col = cols2[colnames(css_mat_16S2[,Seq_16S_meta$Species=="Aspen"])], step = 500, label = FALSE, cex = 1, lwd = 2, ylab = "OTUs", ylim = c(0,800), xlim = c(0,60000))
+```
+
+#Venn diagrams
+
+##ITS and RNA-seq fungi
+
+```{r echo = T, results = 'hide', message = F, warning = F}
+#define function for turning matrices into Class lists that canbe used for Venn diagrams
+#makeClassList(matrix, grouping_factor)
+makeClassList = function(x,y){
+  sum_mat = t(rowsum(t(x), y))
+  sum_mat[sum_mat<20] = 0
+  sum_mat = data.frame(ifelse(sum_mat>0, as.character(rownames(sum_mat)), " "), stringsAsFactors = FALSE)
+  sum_list = sapply(sum_mat[,c(1:ncol(sum_mat))], list)
+  sum_list2 = lapply(sum_list, function(f){
+    f = gsub("Rozella", " ", f)
+    f = gsub("Microsporidia", " ", f)
+    f = gsub("Chytridiales", "Chytridiomycetes", f)
+    f = gsub("Pezizomycotina_cls_Incertae_sedis", "", f)
+    f = gsub("^ ", "", f)
+    f = f[f!=""]
+    f = f[f!=" "]
+    ret = f
+    return(ret)
+  })
+  return(sum_list2)
+}
+
+##Spruce
+
+cc_its = Seq_meta$Description_ID[Seq_meta$Species=="Spruce"]
+names(cc_its) = rownames(Seq_meta[Seq_meta$Species=="Spruce",])
+
+list_it_spru = makeClassList(mat_class[,Seq_meta$Species=="Spruce"], cc_its)
+
+tab_rs_spru = read.csv2("../../doc/Venn/Spruce_Classes.csv", stringsAsFactors = FALSE)[,-c(2,9)]
+colnames(tab_rs_spru)[2] = "X124.127"
+colnames(tab_rs_spru) = c("Z4006_Savar_buds_Jun",
+                          "Z4006_Hissjo_buds_Jun",
+                          "Z4006_Savar_needles2_Jul",
+                          "Z4006_Savar_needles1_Jul",
+                          "Seedlings_needles_Aug",
+                          "Z4006_Savar_needles3_Jul",
+                          "Z4006_Savar_buds_Aug_ster",
+                          "Seedlings_needles_Aug_ster")
+  
+list_rs_spru = sapply(tab_rs_spru, list) 
+list_rs_spru = lapply(list_rs_spru, function(f){
+  f = gsub("Basal", "", f)
+  f = gsub("Rozella", "", f)
+  f = gsub(" Basidiomycota incertae", "", f)
+  f = gsub(" Microsporidia", "", f)
+  f = gsub(" Taphrinomycotina", "", f)
+  f = gsub("^ ", "", f)
+  f = f[f!=""]
+  return(f)
+})
+
+venn1 = venn.diagram(list(list_it_spru[[1]],list_rs_spru[[1]]),
+             filename=NULL,
+             category        = c("RNASeq", "ITS"),
+             fill            = c("blue", "red"),
+             main = "Seedlings needles Aug U",
+             main.cex = 2,
+             scaled = TRUE,
+             ext.text = TRUE,
+             ext.line.lwd = 2,
+             lty = rep("blank", 2),
+             ext.dist = -0.15,
+             ext.length = 0.9,
+             ext.pos = -4,
+             inverted = TRUE,
+             cex = 5,
+             cat.cex = 1.5,
+             cat.dist=c(0.15, 0.15),
+             imagetype = "svg",
+             width = 5,
+             height = 5)
+
+#Repeat for all other list elements, adjust settings to make every single one fit.
+
+
+```
+
+##16S and RNA-seq bacteria
+
+```{r echo = T, results = 'hide', message = F, warning = F}
+#define function for turning matrices into Class lists that canbe used for Venn diagrams
+#makeClassList(matrix, grouping_factor)
+makeClassList16 = function(x,y){
+  sum_mat = t(rowsum(t(x), y))
+  sum_mat[sum_mat<20] = 0
+  sum_mat = data.frame(ifelse(sum_mat>0, as.character(rownames(sum_mat)), " "), stringsAsFactors = FALSE)
+  sum_list = sapply(sum_mat[,c(1:ncol(sum_mat))], list)
+  sum_list2 = lapply(sum_list, function(f){
+    f = gsub("Chlamydiae", "Chlamydiia", f)
+    f = gsub("Planctomycetacia", "Planctomycetia", f)
+    f = gsub("Spirochaetes", "Spirochaetia", f)
+    f = gsub("^ ", "", f)
+    f = f[f!=""]
+    f = f[f!=" "]
+    ret = f
+    return(ret)
+  })
+  return(sum_list2)
+}
+
+##Spruce
+
+cc_16S = Seq_16S_meta$Description_ID[Seq_16S_meta$Species=="Spruce"]
+names(cc_16S) = rownames(Seq_16S_meta[Seq_16S_meta$Species=="Spruce",])
+
+list_16_spru = makeClassList16(mat_class_16S[,Seq_16S_meta$Species=="Spruce"], cc_16S)
+
+tab_rsb_spru = read.csv2("../../doc/Venn/SprucBacteriaClasses.csv", stringsAsFactors = FALSE)
+colnames(tab_rsb_spru) = c("Z4006_Savar_buds_Jun",
+                          "Z4006_Savar_buds_Aug_ster",
+                          "Seedlings_needles_Aug_ster",
+                          "Seedlings_needles_Aug",
+                          "Z4006_Savar_needles1_Jul",
+                          "Z4006_Savar_needles2_Jul",
+                          "Z4006_Savar_needles3_Jul",
+                          "Z4006_Hissjo_buds_Jun")
+  
+list_rsb_spru = sapply(tab_rsb_spru, list) 
+list_rsb_spru = lapply(list_rsb_spru, function(f){
+  f = gsub("Planctomycetacia", "Planctomycetia", f)
+  f = gsub("^ ", "", f)
+  f = f[f!=""]
+  return(f)
+})
+list_rsb_spru[["Z4006_Savar_buds_Aug"]] = c("Actinobacteria",
+                                           "Alphaproteobacteria",
+                                           "Bacilli",
+                                           "Bacteroidia",
+                                           "Betaproteobacteria",
+                                           "Chlamydiia",
+                                           "Clostridia",
+                                           "Coriobacteriia",
+                                           "Cyanobacteria",
+                                           "Deltaproteobacteria",
+                                           "Epsilonproteobacteria",
+                                           "Erysipelotrichi",
+                                           "Flavobacteriia",
+                                           "Fusobacteriia",
+                                           "Gammaproteobacteria",
+                                           "Negativicutes")
+
+list_rsb_spru = list_rsb_spru[names(list_16_spru)]
+flog.threshold(ERROR)
+venn1_16 = venn.diagram(list(list_16_spru[[1]],list_rs_spru[[1]]),
+             filename=NULL,
+             category        = c("RNASeq", "16S"),
+             fill            = c("blue", "red"),
+             main = "Seedlings needles Aug U",
+             main.cex = 2,
+             scaled = TRUE,
+             ext.text = TRUE,
+             ext.line.lwd = 2,
+             lty = rep("blank", 2),
+             ext.dist = -0.15,
+             ext.length = 0.9,
+             ext.pos = -4,
+             inverted = TRUE,
+             cex = 5,
+             cat.cex = 1.5,
+             cat.dist=c(0.15, 0.15),
+             imagetype = "svg",
+             width = 5,
+             height = 5)
+
+#Repeat for all other list elements, adjust settings to make every single one fit.
+```
+

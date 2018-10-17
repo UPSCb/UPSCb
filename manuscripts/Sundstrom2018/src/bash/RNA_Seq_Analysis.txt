@@ -1,0 +1,55 @@
+
+-- ANANAS --
+
+~/AnanasAssemblerOld/Ananas -dir fr -i raw/new/7_160331_AC8B10ANXX_P4202_101_1.fastq.gz,raw/new/7_160331_AC8B10ANXX_P4202_101_2.fastq.gz -o assemblies/P4202_101 -n 30 -n2 8
+
+~/AnanasAssemblerOld/AnanasTopFasta 
+-i<string> : input file
+-l<string> : label fasta header (def=)
+
+
+-- DIAMOND --
+
+/data1/common/software/diamond/bin/diamond blastx -d /data1/common/references/nr/nr -q ../assemblies/NewP4202_203/final_nrP4202_203.fa --salltitles -a matchesP4202_203 -t tmp
+/data1/common/software/diamond/bin/diamond view -a matchesP4202_203.daa -o matchesP4202_203.m
+
+
+-- AFTER DIAMOND --
+
+./ParseProtAligns -i /data2/projects/spruce_RNA/SpruceExAtlasExt/matchesP4202_112.m > /data2/projects/spruce_RNA/SpruceExAtlasExt/tophitP4202_112.m
+
+./AddTaxonomyToAligns -i /data2/projects/spruce_RNA/SpruceExAtlasExt/tophitP4202_112.m -t /data1/common/references/taxonomy/taxonomy.txt > /data2/projects/spruce_RNA/SpruceExAtlasExt/taxonomy_tophitP4202_112.m
+
+./GetColumns -i /data2/projects/spruce_RNA/SpruceExAtlasExt/tophitP4202_112.m -from 0 -to 0 >/data2/projects/spruce_RNA/assemblies/P4202_112/hitDiamond.list
+
+./DiscardFromFasta -f /data2/projects/spruce_RNA/assemblies/P4202_112/final_nrP4202_112.fa -i /data2/projects/spruce_RNA/assemblies/P4202_112/hitDiamond.list >/data2/projects/spruce_RNA/assemblies/P4202_112/nohitDiamondP4202_112.fa
+
+./DiscardFromFasta -f /data2/projects/spruce_RNA/assemblies/P4202_112/final_nrP4202_112.fa -i /data2/projects/spruce_RNA/assemblies/P4202_112/hitDiamond.list -keep >/data2/projects/spruce_RNA/assemblies/P4202_112/hitDiamondP4202_112.fa
+
+
+-- READS --
+
+~/AnanasAssembler/bin/ConvertReadCountsTemp -p pairSz.tmp -c consensusReads.out -s contigs_altsplic.layout -o reads229_
+
+
+~/AnanasAssembler/bin/AddReadCounts -i fungiP1988_107 -s /data2/projects/spruce_RNA/assemblies/P1988_107/readsP1988_107.summary -c 0 -o 1 -r >test2readsFungiP1988_107
+
+./GetColumns -i /data2/projects/spruce_RNA/SpruceExAtlasExt/Fungi/readsFungiP1988_101 -from 0 -to 2 > /data2/projects/spruce_RNA/SpruceExAtlasExt/Fungi/listReadsfungiP1988_101
+
+~/AnanasAssembler/bin/GenerateSampleGeneMatrix -i PlantAllSamples.list -o PlantGeneReadsMatrix
+
+/data1/common/software/release/ryggrad/ReadsByGenus -i [input_file] > [out]
+input = file with reads and taxonomy
+
+
+-- NORMALIZATION --
+
+Plant
+/data1/common/software/release/moose2/Normalize -i <matrix file> -f 1 -l
+30 -linear
+
+Other
+/data1/common/software/release/moose2/ReScale -i <matrix file> -c
+../<plant dir>/factors.out > normalized.out
+
+
