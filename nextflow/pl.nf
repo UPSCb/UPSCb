@@ -1,6 +1,6 @@
 #!/usr/bin/env nextflow
 
-params.reads = "$baseDir/*_{1,2}.fq.gz"
+
 
 def helpMessage() {
 	log.info"""
@@ -16,6 +16,8 @@ def helpMessage() {
 		--reads                       Path to input data (must be surrounded with quotes)
 		--outDir                      Path to results folder
 		--account                     Account for SLURM
+		--aligner                     Aligner to use (salmon, none) WIP -> star
+		--libraryType                 DEF=PE (pair-end) or SE (single-end)
 		
 		
 	General options:
@@ -31,6 +33,7 @@ def helpMessage() {
 		--smeRNAlog Log details DEF = true
 
 		--smeRNADB Path to databases
+		
 	Trimmomatic options:
 	trimJar Path to trimmomatic.jar
 	trimAdapter Path to adapter file
@@ -54,31 +57,69 @@ def helpMessage() {
 	""".stripIndent()
 }
 
-/**************
-***CHECKS
-
-**************/
+/*************CHECK BLOCK**************/
 
 DUMMY = file('dummy')
-
+//params.reads = "$baseDir/*_{1,2}.fq.gz"
 
 if (params.help){
+	log.info"""${params.welcome}"""
 	helpMessage()
 	exit 0
 }
 
-if (params.aligner != 'star' && params.aligner != 'salmon'){
+/* MANDATORY ARGS */
+//OUTPUT FOLDER
+if (params.reads == ""){
+    exit 1, "No files selected. Use --reads myPattern. P.E. *_{1,2}.fq.gz"
+}
+
+if (params.outDir == ""){
+    exit 1, "No output directory was selected. Use --outDir myFolder"
+}
+
+//INDEX
+if (params.aligner == 'salmon' && params.salmonIndex ==''){
+	exit 1, "Salmon needs an index, use --salmonIndex=/path_to_index"
+}
+
+if (params.aligner != 'star' && params.aligner != 'salmon' && params.aligner !='none'){
     exit 1, "Invalid aligner option: ${params.aligner}."
 }
 
+if (params.noFastQC && params.noMultiQC && 
+		params.noTrimmomatic && params.noSortmeRNA && params.aligner=='none') {
+	exit 1, "Nothing to do."
+}
 
+if (params.libraryType == 'PE') {
+	params.salmonMode = "IU"
+	trimMode="PE"
+	smeRNApairedIn = true
+} else if (params.libraryType == 'SE') {
+	if (params.singleEndRead1 == 'F'){
+		params.salmonMode = "ISF"
+	} else if(params.singleEndRead1 == 'R'){
+		params.salmonMode = "ISR"
+	} else {
+		exit 1, "Strand for read 1 non valid. Use F or R"
+	}
+	trimMode="PE"
+	smeRNApairedIn = true
+} else {
+	exit 1, "Unknown library type: ${params.library}. Use PE or SE"
+}
 
 /************* END CHECK BLOCK******************/
+
+/************* CHANNEL CREATION*****************/
 
 	Channel
 	.fromFilePairs( params.reads )
 	.ifEmpty { error "Cannot find any reads matching: ${params.reads}" }
 	.into { read_pairs_ch; read_pairs2_ch	} 
+	
+/**********END* CHANNEL CREATION*****************/
 	
 /*
 if (!params.noSortmeRNA && !params.noTrimmomatic) {
@@ -100,6 +141,8 @@ if (!params.noSortmeRNA && !params.noTrimmomatic) {
 }
 */
 
+/************* PROCESSES BLOCK****************/
+
 /*
 Step sortmeRNA 
 Input: Raw .fastq files
@@ -107,11 +150,12 @@ Output: .fastq file without rRNA + FastQC reports + multiqc reports +sortmeRNA
         reports.
 */
 
-
 if (!params.noSortmeRNA){
 
 	process merger {
 		tag "Merge on $pair_id"
+		label 'smeRNAimg'
+		
 		input:
 			set pair_id, file(reads) from read_pairs2_ch
 
@@ -128,7 +172,10 @@ if (!params.noSortmeRNA){
 	process sortmerna {
 		tag "sortmeRNA on $prefix"
 		publishDir "${params.outDir}/${params.step2}", mode: 'copy'
-			
+		label 'smeRNAimg'
+		
+		//afterScript 'rm -rf *' 
+		
 		input:
 			set pair_id, file(x) from merged_results
 
@@ -153,13 +200,14 @@ if (!params.noSortmeRNA){
 			"""
 			sortmerna --ref $smrDB --reads ${x} \
 			--aligned ${prefix}_discarded --other \
-			${prefix}_sortmerna $fastx $pairedIn $log -a ${params.cpus}
+			${prefix}_sortmerna $fastx $pairedIn $log -a ${task.cpus}
 			"""
 	}
 
 	process unmerger {
 		tag "Unmerge on $prefix"
 		publishDir "${params.outDir}/${params.step2}", mode: 'copy'
+		label 'smeRNAimg'
 		
 		input:
 			set pair_id, file (x) from sortmerna_results
@@ -175,14 +223,16 @@ if (!params.noSortmeRNA){
 	}
 } else { //end sortmeRNA block
 	process no_sortmerna {
-		//fakes a sortmerna
-		tag "No sortmerna"
+
+		tag "No sortmerna" 	//fakes a sortmerna
+		Channel.empty().set { fastqc2_results	} 
 		
 		input:
 			set pair_id, file(reads) from read_pairs2_ch
 
 		output:
 			set pair_id, file(reads) into sortmerna_unmerged
+			
 		script:
 		"""
 		"""
@@ -239,7 +289,7 @@ if (!params.noTrimmomatic){
 
 			"""
 			//java -jar
-			trimmomatic $mode -threads ${params.cpus} $phred $trimLog \
+			trimmomatic $mode -threads ${task.cpus} $phred $trimLog \
 			${read1} ${read2} \
 			${prefix}_trimmomatic_1.fq.gz ${prefix}_unpaired_1.fq.gz \
 			${prefix}_trimmomatic_2.fq.gz ${prefix}_unpaired_2.fq.gz \
@@ -255,11 +305,13 @@ if (!params.noTrimmomatic){
 		tag "No trim"
 		//fakes a trimmomatic
 		
+		Channel.empty().set { fastqc3_results	} 
 		input:
 			set pair_id, file(reads) from sortmerna_unmerged
 
 		output:
 			set pair_id, file(reads) into aligner_ch
+			//file DUMMY into fastqc3_results
 		script:
 		"""
 		"""
@@ -293,7 +345,7 @@ if (params.aligner == 'salmon'){
 			//prefix = read1[0].toString() - ~/(_1)?(_sortmerna)?(_trimmomatic)?(_2)?(\.fq)?(\.fastq)?(\.gz)?$/
 			"""
 			salmon quant -i ${params.salmonIndex} -l ${params.salmonMode} -1 ${read1} \
-			-2 ${read2} -p ${params.cpus} --gcBias --output .
+			-2 ${read2} -p ${task.cpus} --gcBias --output .
 			"""
 	}  
 } else if (params.aligner == 'star' ) {
@@ -314,8 +366,23 @@ if (params.aligner == 'salmon'){
 			"""
 			
 			//salmon quant -i ${params.salmonIndex} -l ${params.salmonMode} -1 ${read1} \
-			//-2 ${read2} -p ${params.cpus} --gcBias --output .
+			//-2 ${read2} -p ${task.cpus} --gcBias --output .
 			"""
+	}
+} else if (params.aligner == 'none' ) {
+	process no_aligner {
+		tag "No aligner"
+		
+
+		input:
+			set pair_id, file(reads) from aligner_ch
+
+		output:
+			set pair_id, file(reads) into aligner_results
+			
+		script:
+		"""
+		"""
 	}
 }
 
@@ -335,6 +402,7 @@ if (!params.noFastQC){
 
 		tag "FASTQC on $pair_id"
 		publishDir "${params.outDir}/${params.step1}", mode: 'copy'
+		label 'fastqc'
 		
 		input:
 			set pair_id, file(reads) from read_pairs_ch
@@ -344,11 +412,9 @@ if (!params.noFastQC){
 
 		script:	
 			def extract='--noextract'
-			if (!params.fastqcNoExtract){
-			extract = ''
-			}
+			if (!params.fastqcNoExtract){	extract = '' }
 			"""
-			fastqc $extract -t ${params.cpus} ${reads}
+			fastqc $extract -t ${task.cpus} ${reads}
 			"""
 	}  
 
@@ -356,25 +422,33 @@ if (!params.noFastQC){
 		process fastqc_sortmerna {
 			tag "FASTQC after sortmerna"
 			publishDir "${params.outDir}/${params.step2}/${params.fastqcSubDir}", mode: 'copy'
+			label 'fastqc'
+			
+			Channel.empty().set { fastqc2_results	} 
 			
 			input:
 				set file(read1), file(read2) from sortmerna_unmerged2
 
 			output:
-				file "*_fastqc.{zip,html}" into fastqc2_results
-
+				//file "*_fastqc.{zip,html}" into fastqc2_results
+			script:
+				"""
+				"""
+/*
 			script:	
 				def extract='--noextract'
 				if (!params.fastqcNoExtract){extract = ''}
 				"""
-				fastqc $extract -t ${params.cpus} ${read1} ${read2}
+				fastqc $extract -t ${task.cpus} ${read1} ${read2}
 				"""
+				*/
 		}  
 	}
 	if (!params.noTrimmomatic){
 		process fastqc_trimmomatic {
 			tag "FASTQC after trimmomatic"
 			publishDir "${params.outDir}/${params.step3}/${params.fastqcSubDir}", mode: 'copy'
+			label 'fastqc'
 			
 			input:
 				set file(read1), file(read2) from trimmomatic_results
@@ -386,7 +460,7 @@ if (!params.noFastQC){
 				def extract='--noextract'
 				if (!params.fastqcNoExtract){extract = ''}
 				"""
-				fastqc $extract -t ${params.cpus} ${read1} ${read2}
+				fastqc $extract -t ${task.cpus} ${read1} ${read2}
 				"""
 		}  
 	}
@@ -395,9 +469,8 @@ if (!params.noFastQC){
 	//fastqc_results = Channel.create()
 	//fastqc2_results = Channel.create()
 	//fastqc3_results = Channel.create()
-	Channel
-	.empty()
-	.into { fastqc_results; fastqc2_results; fastqc3_results	} 
+	Channel.empty().into {fastqc_results; fastqc2_results; fastqc3_results} 
+	// fastqc2_results; fastqc3_results
 }
 
 /*
@@ -410,10 +483,10 @@ MultiQC on
 
 		input:
 			//file ('*') from multiqc_results.collect()
-			file ('*') from aligner_results.collect()
-			file ('*') from fastqc_results.collect().ifEmpty(DUMMY)
-			//file ('*') from fastqc2_results.collect().ifEmpty(DUMMY)
-			//file ('*') from fastqc3_results.ifEmpty(DUMMY)
+			file ('*') from aligner_results.collect().ifEmpty(DUMMY)
+			file ('*') from fastqc_results.collect()
+			file ('*') from fastqc2_results.collect()
+			file ('*') from fastqc3_results.collect()
 		
 		output:
 			file "*"
@@ -423,6 +496,6 @@ MultiQC on
 			multiqc . -o ${params.outDir}/MultiQC
 			"""
 	}
-//}
+
 
 
