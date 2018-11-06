@@ -10,7 +10,7 @@ def helpMessage() {
 	
 		Example:
 	
-	nextflow run pl.nf --reads "rnaseq/*_{1,2}.fq.gz" --outDir results --account "Axxxxxx"
+	nextflow run pl.nf --reads "rnaseq/*_{1,2}.fq.gz" --outDir results --account "Axxxxxx" --salmonIndex pathToIndex
 	
 	Arguments:
 		--reads                       Path to input data (must be surrounded with quotes)
@@ -60,6 +60,11 @@ def helpMessage() {
 /*************CHECK BLOCK**************/
 
 DUMMY = file('dummy')
+DUMMY2 = file('dummy2')
+DUMMY3 = file('dummy3')
+DUMMY4 = file('dummy4')
+
+
 //params.reads = "$baseDir/*_{1,2}.fq.gz"
 
 if (params.help){
@@ -143,15 +148,16 @@ if (!params.noSortmeRNA && !params.noTrimmomatic) {
 
 /************* PROCESSES BLOCK****************/
 
-/*
+
+/*****************************************************************************
 Step sortmeRNA 
 Input: Raw .fastq files
 Output: .fastq file without rRNA + FastQC reports + multiqc reports +sortmeRNA
         reports.
-*/
+*****************************************************************************/
 
 if (!params.noSortmeRNA){
-
+/*
 	process merger {
 		tag "Merge on $pair_id"
 		label 'smeRNAimg'
@@ -168,24 +174,29 @@ if (!params.noSortmeRNA){
 			fmerge ${reads} ${pair_id}_merged.fq
 			"""
 	}
-
+*/
 	process sortmerna {
-		tag "sortmeRNA on $prefix"
-		publishDir "${params.outDir}/${params.step2}", mode: 'copy'
+		tag "sortmeRNA on ${pair_id}"
+		publishDir "${params.outDir}/${params.step2}", pattern: '*discarded.fq.gz'
+		publishDir "${params.outDir}/${params.step2}", pattern: '*.log'
+		//, mode: 'copy'
 		label 'smeRNAimg'
 		
 		//afterScript 'rm -rf *' 
 		
 		input:
-			set pair_id, file(x) from merged_results
+		
+			set pair_id, file(reads) from read_pairs2_ch
+			//set pair_id, file(x) from merged_results
 
 		output:
-			set pair_id, "*_sortmerna.fq" into sortmerna_results
-			file "*_discarded.fq" 
+			//set pair_id, "*_sortmerna.fq" into sortmerna_results
+			set pair_id, file ("*{1,2}.fq.gz") into sortmerna_unmerged, sortmerna_unmerged2
+			file "*_discarded.fq.gz" 
 			file "*.log" into sortmerna_logs
 			
 		script:	
-			prefix = x.toString() - ~/(_R1)?(_trimmed)?(_merged)?(\.fq)?(\.fastq)?(\.gz)?$/
+			//prefix = x.toString() - ~/(_R1)?(_trimmed)?(_merged)?(\.fq)?(\.fastq)?(\.gz)?$/
 			
 			def fastx='--fastx'
 			def pairedIn = '--paired_in'
@@ -198,12 +209,25 @@ if (!params.noSortmeRNA){
 			if (params.smeRNADB == "") {smrDB= "\$SORTMERNA_DB"}
 		
 			"""
-			sortmerna --ref $smrDB --reads ${x} \
-			--aligned ${prefix}_discarded --other \
-			${prefix}_sortmerna $fastx $pairedIn $log -a ${task.cpus}
-			"""
-	}
+			fmerge ${reads} ${pair_id}_merged.fq
+			
+			sortmerna --ref $smrDB --reads ${pair_id}_merged.fq \
+			--aligned ${pair_id}_discarded --other \
+			${pair_id}_sortmerna $fastx $pairedIn $log -a ${task.cpus}
+			
+			funmerge ${pair_id}_sortmerna.fq ${pair_id}_sortmerna_1.fq.gz ${pair_id}_sortmerna_2.fq.gz
+			
+			gzip ${pair_id}_discarded.fq
 
+			rm -rf ${pair_id}_sortmerna.fq
+			rm -rf ${pair_id}_merged.fq
+			
+			"""
+			
+			//cp ${pair_id}discarded.fq.gz ${params.outDir}/${params.step2}
+			//cp *.log ${params.outDir}/${params.step2}
+	}
+/*
 	process unmerger {
 		tag "Unmerge on $prefix"
 		publishDir "${params.outDir}/${params.step2}", mode: 'copy'
@@ -221,6 +245,7 @@ if (!params.noSortmeRNA){
 			funmerge ${x} ${prefix}_sortmerna_1.fq.gz ${prefix}_sortmerna_2.fq.gz
 			"""
 	}
+	*/
 } else { //end sortmeRNA block
 	process no_sortmerna {
 
@@ -240,15 +265,16 @@ if (!params.noSortmeRNA){
 }
 
 
-
-/**********************
+/*****************************************************************************
 Step3 trimmomatic 
 Input: sortmeRNA .fastq files
 Output: .fastq file without adapters + FastQC reports 
-***********************/
+*****************************************************************************/
+
 if (!params.noTrimmomatic){
 	process trimmomatic {
-		publishDir "${params.outDir}/${params.step3}", mode: 'copy'
+		tag "Trimmomatic on ${pair_id}"
+		publishDir "${params.outDir}/${params.step3}"
 		input:
 			//set file(read1), file(read2) from sortmerna_unmerged
 			set pair_id, file(reads) from sortmerna_unmerged
@@ -319,21 +345,20 @@ if (!params.noTrimmomatic){
 }
 
 
-
-/*
+/*****************************************************************************
 Step4 salmon 
 Input: sortmeRNA+trimmomatic .fastq files
 Output: count files.
-*/
+*****************************************************************************/
 
 if (params.aligner == 'salmon'){
 	process salmon {
-		tag "Salmon to ${prefix}"
+		
+		tag "Salmon on ${pair_id}"
 		publishDir "${params.outDir}/${params.step4}/${pair_id}", mode: 'copy'
 		
 		input:
 			set pair_id, file(reads) from aligner_ch
-			//when: !params.noTrimmomatic
 
 		output:
 			/*file "quant.sf" into salmon_results*/
@@ -350,7 +375,7 @@ if (params.aligner == 'salmon'){
 	}  
 } else if (params.aligner == 'star' ) {
 	process star {
-		tag "Star to ${prefix}"
+		tag "STAR on ${pair_id}"
 		
 		input:
 			set pair_id, file(reads) from aligner_ch
@@ -373,7 +398,6 @@ if (params.aligner == 'salmon'){
 	process no_aligner {
 		tag "No aligner"
 		
-
 		input:
 			set pair_id, file(reads) from aligner_ch
 
@@ -390,13 +414,10 @@ if (params.aligner == 'salmon'){
 FASTQC section
 Note: inputs and outputs can't be declared dynamically by Nextflow
 3 process are needed for each possible FastQC output
-*****************************************************************************/
-
-/*
-Step FastQC 
 Input: Raw .fastq files
 Output: FastQC reports + multiqc reports
-*/
+*****************************************************************************/
+
 if (!params.noFastQC){
 	process fastqc {
 
@@ -424,26 +445,33 @@ if (!params.noFastQC){
 			publishDir "${params.outDir}/${params.step2}/${params.fastqcSubDir}", mode: 'copy'
 			label 'fastqc'
 			
-			Channel.empty().set { fastqc2_results	} 
+
 			
 			input:
-				set file(read1), file(read2) from sortmerna_unmerged2
+				//set file(read1), file(read2) from sortmerna_unmerged2
+				set pair_id, file(reads) from sortmerna_unmerged2
 
 			output:
-				//file "*_fastqc.{zip,html}" into fastqc2_results
+				file "*_fastqc.{zip,html}" into fastqc2_results
+/*				
 			script:
 				"""
 				"""
-/*
+*/
 			script:	
+				def read1 =reads[0].toString()
+				def read2 =reads[1].toString()
 				def extract='--noextract'
 				if (!params.fastqcNoExtract){extract = ''}
 				"""
 				fastqc $extract -t ${task.cpus} ${read1} ${read2}
 				"""
-				*/
+				
 		}  
+	} else {
+		Channel.empty().set { fastqc2_results	}
 	}
+	
 	if (!params.noTrimmomatic){
 		process fastqc_trimmomatic {
 			tag "FASTQC after trimmomatic"
@@ -462,7 +490,9 @@ if (!params.noFastQC){
 				"""
 				fastqc $extract -t ${task.cpus} ${read1} ${read2}
 				"""
-		}  
+		} 
+	} else {
+		Channel.empty().set { fastqc3_results	} 
 	}
 } else { //end if(!params.noFastQC)
 
@@ -473,20 +503,19 @@ if (!params.noFastQC){
 	// fastqc2_results; fastqc3_results
 }
 
-/*
-MultiQC on 
-*/
-//if (!params.noMultiQC){
-	process multiqc{
-		tag "$MulqiQc for trimmomatic"
+/*****************************************************************************
+MultiQC section
+*****************************************************************************/
+process multiqc {
+		tag "$MultiQC"
 		publishDir "${params.outDir}/MultiQC", mode: 'copy'
 
 		input:
 			//file ('*') from multiqc_results.collect()
 			file ('*') from aligner_results.collect().ifEmpty(DUMMY)
-			file ('*') from fastqc_results.collect()
-			file ('*') from fastqc2_results.collect()
-			file ('*') from fastqc3_results.collect()
+			file ('*') from fastqc_results.collect().ifEmpty(DUMMY2)
+			file ('*') from fastqc2_results.collect().ifEmpty(DUMMY3)
+			file ('*') from fastqc3_results.collect().ifEmpty(DUMMY4)
 		
 		output:
 			file "*"
@@ -495,7 +524,7 @@ MultiQC on
 			"""
 			multiqc . -o ${params.outDir}/MultiQC
 			"""
-	}
+}
 
 
 
