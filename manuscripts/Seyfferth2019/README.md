@@ -5,14 +5,22 @@
 
 ## Affiliations
 
-1 Umeå Plant Science Centre, Department of Plant Physiology, Umeå University, Umeå, Sweden 
-2 Department of Chemistry, Umeå University, SE-901 87 Umeå, Sweden, 
-3 Arevo AB, Umeå, Sweden,
+1 Umeå Plant Science Centre, Department of Plant Physiology, Umeå University, Umeå, Sweden
+
+2 Department of Chemistry, Umeå University, SE-901 87 Umeå, Sweden
+
+3 Arevo AB, Umeå, Sweden
+
 4 Swiss Federal Institute of Technology Zurich (ETH Zurich), Institute for Building Materials, CH-8093 Zurich, Switzerland
+
 5 Swiss Federal Laboratories of Materials Science and Technology, Laboratory of Wood Materials, CH-8600 Dubendorf, Switzerland
+
 6 DIADE, Univ Montpellier, IRD, Montpellier, France
+
 7 Department of Integrative Medical Biology, Umeå University, Umeå, Sweden, 
+
 8 Stora Enso AB, Fannys väg 1, Nackas, Sweden, 
+
 9 Umeå Plant Science Centre, Department of Forest Genetics and Plant Physiology, Swedish University of Agricultural Sciences, Umeå, Sweden
 
 ## Abstract
