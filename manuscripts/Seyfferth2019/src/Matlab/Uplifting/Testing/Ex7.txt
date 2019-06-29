@@ -1,0 +1,11 @@
+#note imageJ typically inverts the y axis and that is why I am using negative values	
+0.0000	6.2832
+1.0745	6.0937
+2.0194	5.5482
+2.7207	4.7124
+3.0939	3.6871
+3.0939	2.5961
+2.7207	1.5708
+2.0194	0.7350
+1.0745	0.1895
+0.0000	0
